@@ -1,0 +1,2328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#0a0e18">
+<title>EA Noise Techniques Simulator v5.0</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --t:.55;
+  --glass-a:calc(.10 + .78*var(--t));
+  --blur:calc(12px + 30px*var(--t));
+  --sat:calc(1.9 - .5*var(--t));
+  --font:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display","Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace;
+  --spring:cubic-bezier(.32,1.28,.48,1);
+  --r-xl:26px;--r-l:20px;--r-m:14px;--r-s:10px;
+}
+[data-theme=dark]{
+  color-scheme:dark;
+  --ink:#f5f7fb;--ink2:rgba(235,240,250,.72);--ink3:rgba(225,232,245,.5);
+  --tint:24,29,42;--spec:255,255,255;--edge:0,0,0;
+  --well:rgba(255,255,255,.075);--well2:rgba(255,255,255,.14);--sep:rgba(255,255,255,.1);
+  --plate:#0b0f18;
+  --blue:#0a84ff;--red:#ff453a;--green:#30d158;--orange:#ff9f0a;--purple:#bf5af2;--yellow:#ffd60a;
+  --wall:radial-gradient(70% 60% at 12% 8%,#2b4f9e 0,transparent 62%),radial-gradient(60% 60% at 92% 14%,#6a2d91 0,transparent 60%),radial-gradient(70% 70% at 78% 96%,#0d6e78 0,transparent 62%),radial-gradient(60% 60% at 10% 92%,#7a2b45 0,transparent 58%),#070a13;
+}
+[data-theme=light]{
+  color-scheme:light;
+  --ink:#10131a;--ink2:rgba(20,26,38,.72);--ink3:rgba(30,38,54,.54);
+  --tint:250,252,255;--spec:255,255,255;--edge:30,40,60;
+  --well:rgba(20,30,50,.06);--well2:rgba(20,30,50,.12);--sep:rgba(20,30,50,.11);
+  --plate:#fbfcfe;
+  --blue:#007aff;--red:#e0342a;--green:#1f9d44;--orange:#d97a00;--purple:#9a3fd0;--yellow:#b58900;
+  --wall:radial-gradient(70% 60% at 12% 8%,#a9c8ff 0,transparent 62%),radial-gradient(60% 60% at 92% 14%,#e2bdf7 0,transparent 60%),radial-gradient(70% 70% at 78% 96%,#a6ece4 0,transparent 62%),radial-gradient(60% 60% at 10% 92%,#ffc9d6 0,transparent 58%),#e9eef6;
+}
+html,body{height:100%}
+body{font:13px/1.32 var(--font);color:var(--ink);background:#070a13;-webkit-font-smoothing:antialiased;
+  height:100svh;display:grid;grid-template-rows:auto minmax(0,1fr) auto;gap:10px;overflow:hidden;
+  padding:max(10px,env(safe-area-inset-top)) max(10px,env(safe-area-inset-right)) max(10px,env(safe-area-inset-bottom)) max(10px,env(safe-area-inset-left))}
+.wall{position:fixed;inset:0;z-index:-1;background:var(--wall);overflow:hidden}
+.wall::before,.wall::after{content:'';position:absolute;width:52vmax;height:52vmax;border-radius:50%;filter:blur(70px);opacity:0}
+[data-theme=dark] .wall::before{background:#3560d0}[data-theme=dark] .wall::after{background:#a0389a}
+[data-theme=light] .wall::before{background:#8fb7ff}[data-theme=light] .wall::after{background:#f3b0dc}
+.wall.alive::before{opacity:.5;left:-10vmax;top:20%;animation:drift1 34s ease-in-out infinite alternate}
+.wall.alive::after{opacity:.42;right:-12vmax;bottom:-8%;animation:drift2 41s ease-in-out infinite alternate}
+@keyframes drift1{to{transform:translate(38vw,-22vh)}}
+@keyframes drift2{to{transform:translate(-42vw,-26vh)}}
+
+/* ── LIQUID GLASS ──
+   iOS 27 material: clear↔tinted driven by --t, darkened outer edge, bright specular rim. */
+.glass{position:relative;isolation:isolate;
+  background:linear-gradient(165deg,rgba(var(--tint),calc(var(--glass-a) + .06)),rgba(var(--tint),var(--glass-a)));
+  -webkit-backdrop-filter:blur(var(--blur)) saturate(var(--sat));backdrop-filter:blur(var(--blur)) saturate(var(--sat));
+  box-shadow:0 0 0 1px rgba(var(--edge),.3),0 14px 40px -12px rgba(0,0,0,.45),
+    inset 0 1px .5px rgba(var(--spec),.34),inset 0 -1px .5px rgba(var(--spec),.08)}
+.glass::before{content:'';position:absolute;inset:0;border-radius:inherit;padding:1px;pointer-events:none;z-index:1;
+  background:linear-gradient(135deg,rgba(var(--spec),.85),rgba(var(--spec),.1) 34%,rgba(var(--spec),.03) 62%,rgba(var(--spec),.5));
+  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;
+  mask:linear-gradient(#000 0 0) content-box exclude,linear-gradient(#000 0 0)}
+@media (prefers-reduced-transparency:reduce){:root{--t:1!important}}
+@media (prefers-contrast:more){.glass{box-shadow:0 0 0 1.5px var(--ink3)}:root{--t:1!important}}
+
+/* ── NAV ── */
+.nav{display:flex;align-items:center;gap:12px;padding:7px 8px 7px 16px;border-radius:999px;z-index:5;min-width:0}
+.brand{font:700 15px/1 var(--font);letter-spacing:-.2px;white-space:nowrap}
+.brand small{font:500 11px var(--font);color:var(--ink3);margin-left:5px}
+.pills{display:flex;gap:6px;flex:1;min-width:0;overflow-x:auto;scrollbar-width:none;align-items:center}
+.pills::-webkit-scrollbar{display:none}
+.pill{font:500 11.5px var(--font);color:var(--ink2);padding:4px 10px;border-radius:999px;background:var(--well);white-space:nowrap;font-variant-numeric:tabular-nums}
+.pill b{font-weight:650;color:var(--ink)}
+.pill.tx{color:#fff;background:var(--red)}.pill.tx b{color:#fff}
+.dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:currentColor;margin-right:5px;vertical-align:1px}
+.pill.tx .dot{animation:pulse 1.2s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.25}}
+.round{width:36px;height:36px;flex:none;border:none;border-radius:50%;background:var(--well);color:var(--ink);font-size:17px;cursor:pointer;display:grid;place-items:center;transition:transform .25s var(--spring),background .15s}
+.round:hover{background:var(--well2)}.round:active{transform:scale(.9)}
+
+/* ── LAYOUT ── */
+.app{display:grid;grid-template-columns:348px minmax(0,1fr);gap:10px;min-height:0}
+.side{border-radius:var(--r-xl);display:flex;flex-direction:column;min-height:0;overflow:hidden}
+.side-scroll{flex:1;overflow-y:auto;padding:12px 12px 4px;min-height:0;scrollbar-width:thin;position:relative;z-index:2}
+.side-foot{padding:10px 12px 12px;border-top:1px solid var(--sep);position:relative;z-index:2}
+.main{display:flex;flex-direction:column;gap:10px;min-width:0;min-height:0}
+.card{background:color-mix(in srgb,var(--plate) 94%,transparent);border-radius:var(--r-xl);box-shadow:0 0 0 1px rgba(var(--edge),.3),0 14px 40px -14px rgba(0,0,0,.5),inset 0 1px .5px rgba(var(--spec),.12);overflow:hidden;position:relative;min-width:0}
+.spec-card{flex:1;display:flex;flex-direction:column;min-height:240px}
+.wf-card{height:clamp(96px,23%,200px);flex:none;display:flex;flex-direction:column}
+
+/* ── GROUPS ── */
+.group{margin-bottom:12px}
+.ghead{display:flex;align-items:center;justify-content:space-between;font:600 12px var(--font);color:var(--ink2);padding:0 6px 6px;cursor:pointer;user-select:none;background:none;border:none;width:100%;text-align:left}
+.ghead::after{content:'⌄';font-size:13px;line-height:1;transition:transform .3s var(--spring);transform:translateY(-2px)}
+.ghead.col::after{transform:rotate(-90deg)}
+.ghead.nc{cursor:default}.ghead.nc::after{content:''}
+.gbody{background:var(--well);border-radius:var(--r-m);padding:10px 11px}
+.gbody.hide{display:none}
+.row{display:flex;align-items:center;gap:8px;min-height:30px}
+.row+.row{border-top:1px solid var(--sep);margin-top:5px;padding-top:5px}
+.lbl{color:var(--ink2);font-size:12px;flex:none;min-width:66px}
+.val{font:500 12px var(--mono);color:var(--ink);text-align:right;white-space:nowrap}
+.sub{font-size:11px;color:var(--ink3);line-height:1.38}
+.grow{flex:1;min-width:0}
+.fields{display:grid;gap:7px}
+.f2{grid-template-columns:1fr 1fr}.f3{grid-template-columns:1fr 1fr 1fr}
+.field{display:flex;flex-direction:column;gap:3px;min-width:0}
+.field label{font-size:10.5px;color:var(--ink3);white-space:nowrap}
+input[type=number],input[type=text],select{font:500 12px var(--mono);color:var(--ink);background:var(--well);border:1px solid transparent;border-radius:var(--r-s);padding:5px 7px;width:100%;outline:none;transition:border-color .15s,background .15s;min-width:0;-moz-appearance:textfield}
+input::-webkit-outer-spin-button,input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+input:focus,select:focus{border-color:var(--blue);background:var(--well2)}
+input.bad{border-color:var(--red)}
+select{font-family:var(--font);appearance:auto}
+
+/* Slider — slim track, capsule thumb that swells into a lens while dragging */
+input[type=range]{-webkit-appearance:none;appearance:none;flex:1;min-width:0;height:22px;background:none;outline:none;--p:50%;--c:var(--blue);cursor:pointer;touch-action:pan-y}
+input[type=range]::-webkit-slider-runnable-track{height:5px;border-radius:3px;background:linear-gradient(90deg,var(--c) var(--p),var(--well2) var(--p))}
+input[type=range]::-moz-range-track{height:5px;border-radius:3px;background:var(--well2)}
+input[type=range]::-moz-range-progress{height:5px;border-radius:3px;background:var(--c)}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:30px;height:19px;margin-top:-7px;border-radius:10px;background:#fff;
+  box-shadow:0 0 0 .5px rgba(0,0,0,.14),0 2px 7px rgba(0,0,0,.32),inset 0 1px 1px #fff;transition:transform .28s var(--spring),background .2s}
+input[type=range]::-moz-range-thumb{width:30px;height:19px;border:none;border-radius:10px;background:#fff;box-shadow:0 0 0 .5px rgba(0,0,0,.14),0 2px 7px rgba(0,0,0,.32)}
+input[type=range]:active::-webkit-slider-thumb{transform:scale(1.28,1.35);background:rgba(255,255,255,.62)}
+input[type=range]:focus-visible::-webkit-slider-thumb{outline:2px solid var(--blue);outline-offset:2px}
+input.red{--c:var(--red)}
+
+/* Switch */
+.sw{width:46px;height:26px;flex:none;border:none;border-radius:13px;background:var(--well2);position:relative;cursor:pointer;transition:background .25s}
+.sw::after{content:'';position:absolute;left:2px;top:2px;width:30px;height:22px;border-radius:11px;background:#fff;box-shadow:0 1px 5px rgba(0,0,0,.35);transition:transform .32s var(--spring)}
+.sw[aria-checked=true]{background:var(--green)}
+.sw[aria-checked=true]::after{transform:translateX(12px)}
+.sw:disabled{opacity:.45;cursor:not-allowed}
+.sw:focus-visible,.seg button:focus-visible,.btn:focus-visible,.round:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+
+/* Segmented control with a sliding lens */
+.seg{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;background:var(--well);border-radius:999px;padding:2px;position:relative;isolation:isolate}
+.seg button{border:none;background:none;color:var(--ink2);font:550 12px var(--font);padding:5px 9px;border-radius:999px;cursor:pointer;white-space:nowrap;position:relative;z-index:1;transition:color .2s}
+.seg button.on{color:var(--ink)}
+.lens{position:absolute;z-index:0;border-radius:999px;background:rgba(var(--spec),.2);box-shadow:0 1px 5px rgba(0,0,0,.24),inset 0 1px .5px rgba(var(--spec),.55),0 0 0 .5px rgba(var(--edge),.2);transition:left .38s var(--spring),top .38s var(--spring),width .38s var(--spring),height .3s;pointer-events:none}
+[data-theme=light] .lens{background:#fff}
+
+.techs{grid-auto-flow:row;grid-template-columns:repeat(3,1fr);border-radius:var(--r-m);padding:3px}
+.techs button{padding:9px 3px;border-radius:12px;font-size:12.5px}
+.techs .lens{border-radius:12px}
+.techs.n1{grid-template-columns:1fr}.techs.n2{grid-template-columns:1fr 1fr}
+
+/* Buttons */
+.btn{border:none;border-radius:999px;background:var(--well);color:var(--ink);font:600 12.5px var(--font);padding:8px 12px;cursor:pointer;transition:transform .25s var(--spring),background .15s;white-space:nowrap}
+.btn:hover{background:var(--well2)}.btn:active{transform:scale(.96)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn.tint{background:var(--blue);color:#fff}.btn.tint:hover{filter:brightness(1.08)}
+.btn.emit{width:100%;padding:12px;font-size:14.5px;background:var(--red);color:#fff;box-shadow:inset 0 1px .5px rgba(255,255,255,.55),0 6px 18px -6px var(--red)}
+.btn.emit.on{background:color-mix(in srgb,var(--red) 22%,transparent);color:var(--red);box-shadow:inset 0 0 0 1.5px var(--red)}
+.btn.freeze.on{background:var(--blue);color:#fff}
+.btn.sm{padding:5px 10px;font-size:11.5px}
+.btns{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:7px}
+
+/* Tables */
+table{width:100%;border-collapse:collapse;font-size:11.5px}
+th{font:500 10.5px var(--font);color:var(--ink3);text-align:left;padding:0 3px 4px;white-space:nowrap}
+td{padding:2px;vertical-align:middle}
+td input{padding:4px 5px!important;font-size:11.5px!important}
+.num{font:500 11.5px var(--mono);text-align:right;white-space:nowrap}
+th.num{font:500 10.5px var(--font)}
+.x{background:none;border:none;color:var(--ink3);cursor:pointer;font-size:13px;padding:2px 5px;border-radius:50%}
+.x:hover{color:var(--red)}
+.pick{width:17px;height:17px;border-radius:50%;border:1.5px solid var(--ink3);background:none;cursor:pointer;display:block}
+.pick.on{border:5px solid var(--blue)}
+.swatch{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:4px;vertical-align:-.5px}
+
+/* Coverage */
+.cov{display:grid;grid-template-columns:auto 1fr auto;gap:1px 8px;align-items:baseline}
+.cov+.cov{border-top:1px solid var(--sep);margin-top:6px;padding-top:6px}
+.cov b{font:600 12px var(--mono)}
+.verdict{font:600 11.5px var(--font);white-space:nowrap}
+.vg{color:var(--green)}.vy{color:var(--yellow)}.vo{color:var(--orange)}.vr{color:var(--red)}.vn{color:var(--ink3)}
+.cov .sub{grid-column:1/-1;font-family:var(--mono);font-size:10.5px}
+
+/* Plot chrome */
+.plot-head{display:flex;align-items:center;gap:8px;padding:9px 12px 6px;flex-wrap:wrap}
+.ptitle{font:650 13px var(--font);margin-right:auto}
+.chip{font:500 11px var(--mono);color:var(--ink2);white-space:nowrap}
+.chip b{color:var(--ink);font-weight:600}
+.plot-tools{display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding:0 12px 7px}
+.plot-tools .seg button{padding:3px 9px;font-size:11px}
+.plot-tools .btn{padding:4px 10px;font-size:11px}
+.spacer{flex:1}
+.span-in{display:flex;gap:5px;align-items:center;font-size:10.5px;color:var(--ink3)}
+.span-in input{width:66px;padding:3px 5px;font-size:11px}
+.plot{flex:1;min-height:120px;position:relative}
+#spectrumCanvas{position:absolute;inset:0;width:100%;height:100%;display:block;cursor:crosshair;touch-action:none}
+.zoomcap{position:absolute;right:10px;top:8px;display:flex;align-items:center;gap:2px;padding:3px;border-radius:999px;z-index:3}
+.zoomcap button{width:30px;height:28px;border:none;background:none;color:var(--ink);font:600 15px var(--font);border-radius:999px;cursor:pointer;position:relative;z-index:2;transition:transform .25s var(--spring),background .15s}
+.zoomcap button:hover{background:var(--well2)}.zoomcap button:active{transform:scale(.88)}
+.zoomcap button:disabled{opacity:.32;cursor:default}
+.zoomcap button.w{width:auto;padding:0 9px;font-size:11.5px}
+.zsep{width:1px;height:16px;background:var(--sep);position:relative;z-index:2}
+.legend{position:absolute;left:54px;top:9px;display:flex;gap:10px;font:500 10.5px var(--font);color:var(--ink2);pointer-events:none;flex-wrap:wrap;max-width:calc(100% - 300px)}
+.legend i{display:inline-block;width:15px;height:0;border-top:2px solid;vertical-align:3px;margin-right:4px}
+#navCanvas{display:block;width:100%;height:30px;cursor:grab;touch-action:none;border-top:1px solid var(--sep)}
+.wf-head{display:flex;justify-content:space-between;gap:8px;padding:5px 12px 3px;font-size:11px;color:var(--ink3)}
+.wf-head b{font-weight:600;color:var(--ink2)}
+.wf-plot{flex:1;position:relative;min-height:0}
+#waterfallCanvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+
+/* Footer */
+.status{display:flex;gap:16px;padding:7px 16px;border-radius:999px;overflow-x:auto;scrollbar-width:none;font-size:11px;color:var(--ink3);white-space:nowrap}
+.status::-webkit-scrollbar{display:none}
+.status span{position:relative;z-index:2}
+.status b{font:600 11px var(--mono);color:var(--ink);margin-left:3px}
+.status .last{margin-left:auto}
+
+#tip{position:fixed;padding:5px 9px;font:500 11px/1.35 var(--mono);border-radius:11px;pointer-events:none;opacity:0;transition:opacity .1s;z-index:40;white-space:pre}
+
+/* ── SHEETS ── */
+.scrim{position:fixed;inset:0;background:rgba(0,0,0,.34);display:flex;align-items:center;justify-content:center;padding:14px;z-index:50;opacity:0;pointer-events:none;transition:opacity .22s}
+.scrim.open{opacity:1;pointer-events:auto}
+.sheet{width:min(840px,100%);max-height:min(92svh,920px);border-radius:32px;display:flex;flex-direction:column;overflow:hidden;transform:translateY(26px) scale(.96);transition:transform .42s var(--spring);--glass-a:calc(.5 + .44*var(--t))}
+.sheet.sm{width:min(520px,100%)}
+.scrim.open .sheet{transform:none}
+.sheet-head{display:flex;align-items:center;gap:10px;padding:14px 14px 10px 22px;position:relative;z-index:2}
+.sheet-head h2{font:700 19px var(--font);letter-spacing:-.3px;flex:1}
+.sheet-body{flex:1;overflow-y:auto;padding:2px 16px 12px;position:relative;z-index:2}
+.sheet-foot{display:flex;gap:8px;justify-content:flex-end;padding:10px 16px 16px;position:relative;z-index:2;border-top:1px solid var(--sep)}
+.desc{font-size:12px;color:var(--ink2);line-height:1.45;padding:8px 2px 0}
+.desc b{color:var(--ink)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.vizwrap{height:132px;background:var(--plate);border-radius:var(--r-m);overflow:hidden;box-shadow:inset 0 0 0 1px var(--sep)}
+#hopVizCanvas{width:100%;height:100%;display:block}
+.linkviz{height:230px}
+#linkCanvas{width:100%;height:100%;display:block;touch-action:pan-y;cursor:crosshair}
+.tscroll{overflow-x:auto;scrollbar-width:thin}
+.tscroll th,.tscroll td{white-space:nowrap}
+.tscroll td.verdict{padding-left:8px}
+.warn{color:var(--orange);font-size:11.5px;padding-top:6px}
+.setrow{display:flex;align-items:center;gap:10px;min-height:42px}
+.setrow+.setrow{border-top:1px solid var(--sep);padding-top:5px;margin-top:5px}
+.setrow .tt{font:550 13px var(--font)}
+.tag{display:inline-block;font:600 9.5px var(--mono);color:var(--ink3);background:var(--well);padding:1px 5px;border-radius:5px;margin-left:5px;vertical-align:1px}
+.stepper{display:flex;align-items:center;gap:6px}
+.stepper button{width:28px;height:26px}
+
+@media (max-width:900px){
+  body{height:auto;min-height:100svh;overflow:auto;display:flex;flex-direction:column}
+  .app{display:flex;flex-direction:column}
+  .main{order:-1}
+  .spec-card{min-height:62svh}
+  .wf-card{height:128px}
+  .side{overflow:visible}
+  .side-scroll{overflow:visible}
+  .side-foot{position:sticky;bottom:8px;margin:0 6px 6px;border:none;border-radius:var(--r-l);background:rgba(var(--tint),.94);box-shadow:0 0 0 1px rgba(var(--edge),.3),0 10px 26px -8px rgba(0,0,0,.5);z-index:4}
+  .legend{display:none}
+  .brand small{display:none}
+  .two{grid-template-columns:1fr}
+  .scrim{align-items:flex-end;padding:6px}
+  .sheet{max-height:94svh}
+  .span-in input{width:58px}
+}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{transition-duration:.01ms!important;animation:none!important}}
+</style>
+</head>
+<body data-theme="dark">
+<div class="wall" id="wall"></div>
+<svg id="fxdefs" width="0" height="0" style="position:absolute" aria-hidden="true"></svg>
+
+<!-- ════════════════════════════════ NAV ════════════════════════════════ -->
+<header class="nav glass refract" id="nav">
+  <div class="brand">EA Noise Sim<small>v5.0 · 2–18 GHz</small></div>
+  <div class="pills" style="position:relative;z-index:2">
+    <span class="pill" id="pStat"><span class="dot"></span><b>Standby</b></span>
+    <span class="pill" id="hMode"><b>Spot noise</b></span>
+    <span class="pill" id="hRadar">Radar <b>9.500 GHz</b></span>
+    <span class="pill" id="hFrz" style="display:none"><b>❚❚ Frozen</b></span>
+    <span class="pill" id="hTime">00:00:00</span>
+  </div>
+  <button class="round" style="position:relative;z-index:2" onclick="openSheet('setSheet')" aria-label="Settings" title="Settings">⚙︎</button>
+</header>
+
+<div class="app">
+<!-- ════════════════════ CONTROLS ════════════════════ -->
+<aside class="side glass">
+ <div class="side-scroll">
+
+  <div class="group">
+    <div class="ghead nc">Technique</div>
+    <div class="seg techs" id="techGrid"></div>
+  </div>
+
+  <!-- HOPPING -->
+  <div class="group" id="hopSec" style="display:none">
+    <div class="ghead nc">Hopping scheme</div>
+    <div class="gbody">
+      <div class="seg" id="hopQuick" style="margin-bottom:8px"></div>
+      <div class="sub" id="hopSummary" style="margin-bottom:8px"></div>
+      <button class="btn tint" style="width:100%" onclick="openHop()">Configure channels…</button>
+    </div>
+  </div>
+
+  <!-- RADAR -->
+  <div class="group">
+    <button class="ghead" onclick="toggleSec(this)">Threat radars</button>
+    <div class="gbody">
+      <table><thead><tr><th></th><th>RF GHz</th><th>PW µs</th><th>PRI ms</th><th>BW MHz</th><th title="Radar transmit peak power">P dBm</th><th></th></tr></thead>
+        <tbody id="radarTbody"></tbody></table>
+      <div class="row" style="margin-top:4px">
+        <span class="sub grow" id="rdrDerived"></span>
+        <button class="btn sm" id="addRadarBtn" onclick="addRadarRow()">+ Add</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- JAMMER -->
+  <div class="group" id="freqSec">
+    <button class="ghead" onclick="toggleSec(this)">Jammer frequency</button>
+    <div class="gbody">
+      <div class="row" id="cfRow"><span class="lbl">Center</span>
+        <input type="range" id="sCF" min="2" max="18" value="9.5" step="0.001" oninput="fromCF()" aria-label="Center frequency">
+        <span class="val" id="vCF" style="min-width:66px"></span></div>
+      <div class="row"><span class="lbl" id="bwLbl">Bandwidth</span>
+        <input type="range" id="sBW" min="0" max="1000" value="500" step="1" oninput="fromBW()" aria-label="Noise bandwidth">
+        <span class="val" id="vBW" style="min-width:66px"></span></div>
+      <div class="fields f2" id="feRow" style="margin-top:7px">
+        <div class="field"><label for="nFS">F start (GHz)</label><input type="number" id="nFS" step="0.01" onchange="syncManual()"></div>
+        <div class="field"><label for="nFE">F stop (GHz)</label><input type="number" id="nFE" step="0.01" onchange="syncManual()"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- LFM -->
+  <div class="group" id="lfmSec">
+    <button class="ghead" onclick="toggleSec(this)" id="lfmHead">LFM modulation</button>
+    <div class="gbody">
+      <div class="row" id="lfmTogRow"><span class="lbl grow">Linear FM</span>
+        <button class="sw" id="lfmTog" role="switch" aria-checked="false" aria-label="Linear FM" onclick="toggleLFM()"></button></div>
+      <div id="lfmC">
+        <div class="row"><span class="lbl">Sweep width</span>
+          <input type="range" id="sLW" min="0.01" max="8" value="0.5" step="0.01" oninput="updateAll()" aria-label="Sweep width">
+          <span class="val" id="vLW" style="min-width:66px"></span></div>
+        <div class="row"><span class="lbl">Sweep rate</span>
+          <input type="range" id="sLR" min="0.5" max="100" value="5" step="0.5" oninput="updateAll()" aria-label="Sweep rate">
+          <span class="val" id="vLR" style="min-width:66px"></span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PULSE -->
+  <div class="group" id="pulseSec" style="display:none">
+    <div class="ghead nc">Pulse gating</div>
+    <div class="gbody">
+      <div class="row"><span class="lbl">Pulse width</span>
+        <input type="range" id="sPW" min="0.5" max="500" value="50" step="0.5" oninput="updateAll()" aria-label="Jammer pulse width">
+        <span class="val" id="vPW" style="min-width:66px"></span></div>
+      <div class="row"><span class="lbl">Jammer PRF</span>
+        <input type="range" id="sPRF" min="100" max="50000" value="1000" step="100" oninput="updateAll()" aria-label="Jammer PRF">
+        <span class="val" id="vPRF" style="min-width:66px"></span></div>
+    </div>
+  </div>
+
+  <!-- COVER -->
+  <div class="group" id="coverSec" style="display:none">
+    <div class="ghead nc">Cover pulse</div>
+    <div class="gbody">
+      <div class="row"><span class="lbl">Width × PW</span>
+        <input type="range" id="sCW" min="1" max="20" value="3" step="0.5" oninput="updateAll()" aria-label="Cover pulse width multiple">
+        <span class="val" id="vCW" style="min-width:66px"></span></div>
+      <div class="sub" style="padding-top:4px">Follows the selected radar's RF and PRI.</div>
+    </div>
+  </div>
+
+  <!-- POWER -->
+  <div class="group">
+    <button class="ghead" onclick="toggleSec(this)" id="pwrHead">Power budget</button>
+    <div class="gbody">
+      <div class="row"><label class="lbl grow" for="nBudget">Budget (W)</label>
+        <input type="number" id="nBudget" min="10" max="1000000" step="100" value="1100" style="width:92px" oninput="fromBudget()"></div>
+      <div class="row"><label class="lbl" for="nPWR">Jammer (W)</label>
+        <input type="range" id="sPWR" class="red" min="1" max="1100" value="500" step="1" oninput="powerChanged()" aria-label="Jammer power">
+        <input type="number" id="nPWR" min="1" step="10" style="width:72px" oninput="fromNPWR()"></div>
+      <div class="row"><span class="lbl grow">Mean output</span><span class="val" id="pMean"></span></div>
+      <div class="row"><span class="lbl grow">Peak density</span><span class="val" id="pDens"></span></div>
+      <div class="row" id="pImRow"><span class="lbl grow">Lost to IM products</span><span class="val" id="pIm"></span></div>
+      <div class="sub" id="pwrNote" style="padding-top:6px"></div>
+    </div>
+  </div>
+
+  <!-- LINK -->
+  <div class="group">
+    <button class="ghead" onclick="toggleSec(this)">J/S and burn-through</button>
+    <div class="gbody">
+      <div id="linkBody"></div>
+      <button class="btn tint" style="width:100%;margin-top:8px" onclick="openLink()">Engagement…</button>
+    </div>
+  </div>
+
+  <!-- COVERAGE -->
+  <div class="group">
+    <button class="ghead" onclick="toggleSec(this)">Threat coverage</button>
+    <div class="gbody">
+      <div id="covBody"></div>
+      <div class="sub" style="padding-top:7px">J̄ average and Ĵ peak noise inside the radar band, at the PA output.</div>
+    </div>
+  </div>
+ </div>
+
+ <div class="side-foot">
+  <button class="btn emit" id="emitBtn" onclick="toggleEmit()">▶ Emit jamming</button>
+  <div class="btns">
+    <button class="btn freeze" id="frzBtn" onclick="toggleFreeze()">❚❚ Freeze</button>
+    <button class="btn" onclick="randomize()">⟳ Random</button>
+    <button class="btn" onclick="resetAll()">↺ Reset</button>
+  </div>
+ </div>
+</aside>
+
+<!-- ════════════════════ DISPLAY ════════════════════ -->
+<main class="main">
+  <section class="card spec-card">
+    <div class="plot-head">
+      <span class="ptitle">Spectrum</span>
+      <span class="chip">CF <b id="cCF"></b></span>
+      <span class="chip">Span <b id="cSpan"></b></span>
+      <span class="chip">RBW <b id="cRBW"></b></span>
+      <span class="chip"><b id="cDet"></b></span>
+    </div>
+    <div class="plot-tools">
+      <div class="seg" id="detSeg"></div>
+      <div class="seg" id="timeSeg"></div>
+      <div class="seg" id="dragSeg"></div>
+      <span class="spacer"></span>
+      <div class="span-in">
+        <label for="vStart">Start</label><input type="number" id="vStart" step="0.01" onchange="viewFromInputs()">
+        <label for="vStop">Stop</label><input type="number" id="vStop" step="0.01" onchange="viewFromInputs()">
+      </div>
+      <button class="btn" onclick="zoomTo('radar')" title="Zoom to the selected radar">Radar</button>
+      <button class="btn" onclick="zoomTo('jammer')" title="Zoom to the emission">Jammer</button>
+    </div>
+    <div class="plot" id="plot">
+      <canvas id="spectrumCanvas" aria-label="Spectrum display. Scroll to zoom, drag to select a frequency range, double click to fit."></canvas>
+      <div class="legend" id="legend"></div>
+      <div class="zoomcap glass refract" id="zoomcap">
+        <button onclick="zoomBy(1.6)" aria-label="Zoom out" title="Zoom out (−)">−</button>
+        <button onclick="zoomBy(1/1.6)" aria-label="Zoom in" title="Zoom in (+)">+</button>
+        <span class="zsep"></span>
+        <button class="w" id="backBtn" onclick="viewBack()" title="Previous view (Backspace)" disabled>Back</button>
+        <button class="w" onclick="fitView()" title="Full span (0)">Fit</button>
+        <span class="zsep"></span>
+        <button class="w" onclick="autoY()" title="Autoscale amplitude (A)">Auto Y</button>
+      </div>
+    </div>
+    <canvas id="navCanvas" aria-label="Full-band navigator. Drag the window to pan, drag its edges to resize."></canvas>
+  </section>
+  <section class="card wf-card">
+    <div class="wf-head"><span><b>Waterfall</b> · newest on top</span><span id="wfInfo"></span></div>
+    <div class="wf-plot"><canvas id="waterfallCanvas" aria-hidden="true"></canvas></div>
+  </section>
+</main>
+</div>
+
+<footer class="status glass">
+  <span>Tech<b id="fTech"></b></span>
+  <span>Radar<b id="fRF"></b></span>
+  <span>PW<b id="fPW"></b></span>
+  <span>PRI<b id="fPRI"></b></span>
+  <span>Jammer<b id="fJ"></b></span>
+  <span>Power<b id="fPwr"></b></span>
+  <span>Density<b id="fPD"></b></span>
+  <span class="last">Status<b id="fStat">STANDBY</b></span>
+</footer>
+<div id="tip" class="glass"></div>
+
+<!-- ════════════════════════════════ HOPPING SHEET ════════════════════════════════ -->
+<div class="scrim" id="hopSheet" onclick="scrimClick(event,'hopSheet')">
+<div class="sheet glass" role="dialog" aria-modal="true" aria-labelledby="hopT">
+  <div class="sheet-head"><h2 id="hopT">Hopping noise</h2>
+    <button class="round" onclick="closeSheet('hopSheet')" aria-label="Cancel">✕</button></div>
+  <div class="sheet-body">
+
+    <div class="group">
+      <div class="seg" id="hopTabs"></div>
+      <div class="desc" id="hopDesc"></div>
+    </div>
+
+    <div class="group">
+      <div class="ghead nc">Channels</div>
+      <div class="gbody">
+        <table id="hopTable"><thead id="hopThead"></thead><tbody id="hopBody"></tbody></table>
+        <div class="row" style="margin-top:4px">
+          <div class="stepper grow" id="grpStep"><span class="lbl">Channels per group</span>
+            <button class="btn sm" onclick="stepGroup(-1)" aria-label="Fewer per group">−</button>
+            <span class="val" id="grpVal"></span>
+            <button class="btn sm" onclick="stepGroup(1)" aria-label="More per group">+</button></div>
+          <span class="grow" id="grpSpacer"></span>
+          <button class="btn sm" id="addHF" onclick="addHF()">+ Add channel</button>
+        </div>
+        <div id="grpDwells" class="fields f3" style="margin-top:6px"></div>
+      </div>
+    </div>
+
+    <div class="two">
+      <div class="group" id="timingBox">
+        <div class="ghead nc">Timing</div>
+        <div class="gbody">
+          <div class="fields f3">
+            <div class="field"><label for="hDwell">Dwell (ms)</label><input type="number" id="hDwell" min="0.0001" step="0.1" oninput="editDwell()"></div>
+            <div class="field"><label for="hRate">Hop rate (Hz)</label><input type="number" id="hRate" min="1" step="1" oninput="editRate()"></div>
+            <div class="field"><label for="hGuard">Guard (µs)</label><input type="number" id="hGuard" min="0" step="10" oninput="editGuard()"></div>
+          </div>
+          <div class="row" style="margin-top:6px"><span class="lbl">Order</span><div class="seg grow" id="orderSeg"></div></div>
+          <div class="warn" id="hopWarn"></div>
+        </div>
+      </div>
+      <div class="group" id="paBox">
+        <div class="ghead nc" id="paHead">Summing power model</div>
+        <div class="gbody">
+          <div class="seg" id="paSeg"></div>
+          <div class="sub" id="paDesc" style="padding-top:6px"></div>
+          <div class="row" style="margin-top:6px"><span class="lbl grow"><label for="hLoss">Implementation loss (dB)</label></span>
+            <input type="number" id="hLoss" min="0" max="40" step="0.1" style="width:66px" oninput="editLoss()"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="ghead nc">Time pattern <span id="vizInfo" class="sub" style="font-weight:400"></span></div>
+      <div class="vizwrap"><canvas id="hopVizCanvas" aria-hidden="true"></canvas></div>
+    </div>
+
+    <div class="group" style="margin-bottom:4px">
+      <div class="ghead nc"><span>Per-channel budget at <span id="budgetP"></span></span></div>
+      <div class="gbody"><table>
+        <thead><tr><th>Ch</th><th class="num">While on</th><th class="num">re. full power</th><th class="num">Duty</th><th class="num">Average</th><th class="num">Avg re. full</th><th class="num">Revisit</th></tr></thead>
+        <tbody id="budgetBody"></tbody></table>
+        <div class="sub" id="budgetNote" style="padding-top:6px"></div>
+      </div>
+    </div>
+  </div>
+  <div class="sheet-foot">
+    <button class="btn" onclick="closeSheet('hopSheet')">Cancel</button>
+    <button class="btn" onclick="applyHop(false)">Apply</button>
+    <button class="btn tint" onclick="applyHop(true)">▶ Apply &amp; emit</button>
+  </div>
+</div>
+</div>
+
+<!-- ════════════════════════════════ ENGAGEMENT SHEET ════════════════════════════════ -->
+<div class="scrim" id="linkSheet" onclick="scrimClick(event,'linkSheet')">
+<div class="sheet glass" role="dialog" aria-modal="true" aria-labelledby="linkT">
+  <div class="sheet-head"><h2 id="linkT">Engagement</h2>
+    <button class="round" onclick="closeSheet('linkSheet')" aria-label="Close">✕</button></div>
+  <div class="sheet-body">
+    <div class="group">
+      <div class="seg" id="linkModeSeg"></div>
+      <div class="desc" id="linkDesc"></div>
+    </div>
+    <div class="group">
+      <div class="ghead nc">Geometry and target</div>
+      <div class="gbody"><div class="fields f3">
+        <div class="field"><label for="lR">Target range (km)</label><input type="number" id="lR" min="0.01" step="1" oninput="editLink('R',this)"></div>
+        <div class="field"><label for="lSigma">Target RCS (m²)</label><input type="number" id="lSigma" min="0.0001" step="1" oninput="editLink('sigma',this)"></div>
+        <div class="field" id="lRjBox"><label for="lRj">Jammer range (km)</label><input type="number" id="lRj" min="0.01" step="1" oninput="editLink('Rj',this)"></div>
+      </div></div>
+    </div>
+    <div class="two">
+      <div class="group">
+        <div class="ghead nc">Radar</div>
+        <div class="gbody"><div class="fields f2">
+          <div class="field"><label for="lG">Antenna gain (dBi)</label><input type="number" id="lG" step="1" oninput="editLink('G',this)"></div>
+          <div class="field" id="lSlBox"><label for="lSl">Sidelobes below main (dB)</label><input type="number" id="lSl" step="1" oninput="editLink('sl',this)"></div>
+          <div class="field"><label for="lLr">System loss (dB)</label><input type="number" id="lLr" step="0.5" oninput="editLink('Lr',this)"></div>
+          <div class="field"><label for="lNf">Noise figure (dB)</label><input type="number" id="lNf" step="0.5" oninput="editLink('nf',this)"></div>
+          <div class="field"><label for="lNp">Pulses integrated</label><input type="number" id="lNp" min="1" step="1" oninput="editLink('np',this)"></div>
+          <div class="field"><label for="lD">Detection threshold (dB)</label><input type="number" id="lD" step="0.5" oninput="editLink('D',this)"></div>
+        </div></div>
+      </div>
+      <div class="group">
+        <div class="ghead nc">Jammer</div>
+        <div class="gbody"><div class="fields f2">
+          <div class="field"><label for="lGj">Antenna gain (dBi)</label><input type="number" id="lGj" step="1" oninput="editLink('Gj',this)"></div>
+          <div class="field"><label for="lLj">Loss (dB)</label><input type="number" id="lLj" step="0.5" oninput="editLink('Lj',this)"></div>
+        </div>
+        <div class="sub" style="padding-top:7px">Power, bandwidth and timing come from the selected technique. Loss covers polarisation mismatch and noise quality.</div></div>
+      </div>
+    </div>
+    <div class="group">
+      <div class="ghead nc"><span>Signal to jamming plus noise vs range</span><span class="seg" id="linkRadarSeg"></span></div>
+      <div class="vizwrap linkviz"><canvas id="linkCanvas" aria-hidden="true"></canvas></div>
+      <div class="warn" id="linkWarn"></div>
+    </div>
+    <div class="group" style="margin-bottom:4px">
+      <div class="ghead nc">Results at target range</div>
+      <div class="gbody"><div class="tscroll"><table>
+        <thead><tr><th>Radar</th><th class="num">S dBm</th><th class="num">J dBm</th><th class="num">N dBm</th><th class="num">J/N dB</th><th class="num">J/S dB</th><th class="num">Proc. gain dB</th><th class="num">J/S after dB</th><th class="num">S/(J+N) dB</th><th class="num">Burn-through</th><th class="num">Detection</th><th>Status</th></tr></thead>
+        <tbody id="linkTable"></tbody></table></div>
+        <div class="sub" style="padding-top:7px">Levels at the radar receiver. J/S is before processing, J/S after includes pulse compression (PW × BW) and integration. Burn-through is where S/(J+N) reaches the threshold; detection is the same point without jamming. Results assume the jammer is emitting.</div>
+      </div>
+    </div>
+  </div>
+  <div class="sheet-foot"><button class="btn tint" onclick="closeSheet('linkSheet')">Done</button></div>
+</div>
+</div>
+
+<!-- ════════════════════════════════ SETTINGS SHEET ════════════════════════════════ -->
+<div class="scrim" id="setSheet" onclick="scrimClick(event,'setSheet')">
+<div class="sheet sm glass" role="dialog" aria-modal="true" aria-labelledby="setT">
+  <div class="sheet-head"><h2 id="setT">Settings</h2>
+    <button class="round" onclick="closeSheet('setSheet')" aria-label="Close">✕</button></div>
+  <div class="sheet-body">
+    <div class="group">
+      <div class="ghead nc">Techniques on screen</div>
+      <div class="gbody" id="setTechs"></div>
+    </div>
+    <div class="group">
+      <div class="ghead nc">Appearance</div>
+      <div class="gbody">
+        <div class="setrow"><span class="tt grow">Theme</span><div class="seg" id="themeSeg"></div></div>
+        <div class="setrow"><span class="tt" style="flex:none">Liquid Glass</span>
+          <span class="sub">Clear</span>
+          <input type="range" id="glassSl" min="0" max="100" step="1" oninput="setGlass(this.value/100)" aria-label="Liquid Glass clear to tinted">
+          <span class="sub">Tinted</span></div>
+        <div class="setrow"><div class="grow"><div class="tt">Refraction</div><div class="sub" id="refrNote">Lens edges on floating bars</div></div>
+          <button class="sw" id="refrSw" role="switch" aria-label="Refraction" onclick="toggleSet('refract')"></button></div>
+        <div class="setrow"><div class="grow"><div class="tt">Animated wallpaper</div><div class="sub">Uses more GPU</div></div>
+          <button class="sw" id="wallSw" role="switch" aria-label="Animated wallpaper" onclick="toggleSet('wall')"></button></div>
+      </div>
+    </div>
+    <div class="group">
+      <div class="ghead nc">Spectrum</div>
+      <div class="gbody">
+        <div class="setrow"><span class="tt grow">Amplitude unit</span><div class="seg" id="unitSeg"></div></div>
+        <div class="setrow"><span class="tt grow"><label for="rbwSel">RBW</label></span><select id="rbwSel" style="width:110px" onchange="setRBW(this.value)"></select></div>
+        <div class="setrow"><div class="grow"><div class="tt">Peak envelope</div><div class="sub">Level of each state while it is on</div></div>
+          <button class="sw" id="peakSw" role="switch" aria-label="Peak envelope" onclick="toggleSet('peak')"></button></div>
+        <div class="setrow"><div class="grow"><div class="tt">Time average</div><div class="sub">True mean over the full cycle</div></div>
+          <button class="sw" id="avgSw" role="switch" aria-label="Time average" onclick="toggleSet('avg')"></button></div>
+        <div class="setrow"><div class="grow"><div class="tt">Intermodulation products</div><div class="sub">Saturated summing only</div></div>
+          <button class="sw" id="imSw" role="switch" aria-label="Intermodulation products" onclick="toggleSet('im')"></button></div>
+      </div>
+    </div>
+    <div class="group">
+      <div class="ghead nc">Model notes</div>
+      <div class="gbody sub" style="line-height:1.55">The spectrum shows jammer power at the amplifier output and each radar as received at the jammer antenna. J/S uses free-space spreading with fixed antenna gains and treats noise as white inside the radar band; the atmosphere, multipath, horizon, RCS fluctuation and coherent (DRFM) jamming are not modelled. Saturated summing uses a memoryless envelope limiter on constant-envelope (FM noise) channels, tabulated by Monte-Carlo up to 16 channels; products above 5th order are counted in the total but not drawn. With more than 6 summed channels only 3rd-order products are drawn. Sum, Mux and Sum+Mux are the simulator's names for simultaneous, time-multiplexed and grouped power sharing. Educational model, not a measured system.</div>
+    </div>
+    <div class="group" style="margin-bottom:4px">
+      <div class="ghead nc">Zoom shortcuts</div>
+      <div class="gbody sub" style="line-height:1.6">Scroll: frequency zoom at the cursor · Shift+scroll or scroll on the dB axis: amplitude zoom · Drag: box zoom or pan (see the Zoom/Pan switch, Shift swaps them) · Pinch on touch · Double click: fit · Keys: + − 0 A ← → Backspace</div>
+    </div>
+  </div>
+</div>
+</div>
+
+<script>
+// ════════════════════════════════════════════════════════
+//  CONSTANTS
+// ════════════════════════════════════════════════════════
+const FMIN=2,FMAX=18,MIN_SPAN=0.001,MAX_CH=16,MAX_RADAR=8;
+const NB=1601,NF_DB=24,RADAR_DBM=80;
+const dbm2w=d=>Math.pow(10,(d-30)/10),db2lin=d=>Math.pow(10,d/10);
+const TECHS={
+  spot:{n:'Spot',full:'Spot noise',tag:'SPT',def:true,d:'All power in one narrow band on the threat.',note:'Full power in one band. Highest density, narrowest coverage.'},
+  barrage:{n:'Barrage',full:'Barrage noise',tag:'BRG',def:true,d:'Continuous noise across a wide band.',note:'Same power spread over the band: density falls as 1/BW.'},
+  hopping:{n:'Hopping',full:'Hopping noise',tag:'HOP',def:true,d:'Sum, Mux or Sum+Mux across several channels.',note:''},
+  cover:{n:'Cover',full:'Cover pulse',tag:'CVR',def:false,d:'Noise burst gated around the selected radar\'s pulses.',note:'Full peak power, average = P × cover width / PRI.'},
+  pulse:{n:'Pulse',full:'Pulsed noise',tag:'PLS',def:false,d:'Noise gated by its own PW and PRF.',note:'Peak stays at P, average = P × PW × PRF.'},
+  unsync:{n:'Unsync',full:'Unsynchronised',tag:'USN',def:false,d:'Three independent sources drifting in the band.',note:'Three asynchronous sources sharing P, each P/3.'},
+  swept:{n:'Swept',full:'Swept spot',tag:'SWT',def:false,d:'Narrow noise swept linearly across a band.',note:'Full power on one band at a time: full power at each frequency for a fraction of the sweep.'},
+};
+const HOP_MODES={
+  sum:{n:'Sum',full:'Summing',d:'<b>Summing noise.</b> All channels radiate at the same time through one amplifier, so they share its power continuously. No time gaps: every channel is on 100% of the time, each at lower level, and amplifier non-linearity can add intermodulation products.'},
+  mux:{n:'Mux',full:'Multiplexed',d:'<b>Mux noise.</b> One channel at a time gets the full amplifier power for its dwell, then the next. High peak on each channel, but the average falls with its time share: P × duty. Coverage has gaps: compare the revisit time with the radar PW and PRI.'},
+  summux:{n:'Sum+Mux',full:'Sum + Mux',d:'<b>Sum+Mux noise.</b> Channels are split into groups. Channels in a group are summed and share the power; groups are multiplexed in time. Group size k sets the trade: k = 1 is pure Mux, k = N is pure Sum.'},
+};
+const PA_MODELS={
+  sat:{n:'Saturated',d:'Amplifier stays at saturation, modelled as an envelope limiter. Total output stays at P but about 20% goes into IM products. 2 equal channels: −3.9 dB each, IM3 at −9.5 dBc.'},
+  linear:{n:'Linear',d:'Backed off so summed peaks never clip. Amplitudes add: −20·log N per channel and total output P/N. No IM products.'},
+  ideal:{n:'Ideal',d:'Reference case with no peak limit: −10·log N per channel, no IM, total stays at P. A real amplifier does not reach this.'},
+};
+// Envelope limiter, N equal constant-envelope carriers (Monte-Carlo, 4M phase draws).
+// index N-2 → [wanted-signal fraction of P, 2fi−fj dBc, fi+fj−fk dBc]
+const LIM=[[.8104,-9.5,0],[.8287,-20.3,-9],[.8111,-21.7,-14.5],[.8046,-24.7,-17.2],[.8033,-26.5,-19.4],[.7994,-27.8,-20.9],[.795,-29.8,-22.5],[.7976,-30.1,-23.5],[.7935,-32.4,-24.7],[.7954,-31.9,-25.7],[.7921,-32.8,-26.1],[.7971,-34.5,-27.1],[.7897,-33.9,-28.3],[.7948,-36.4,-28.7],[.7959,-36,-28.7]];
+const CH_COL={dark:['#3987e5','#d95926','#199e70','#c98500','#d55181','#008300','#9085e9','#e66767'],light:['#2a78d6','#eb6834','#1baf7a','#eda100','#e87ba4','#008300','#6250d6','#e34948'],other:'#8a93a5'};
+const PAL={
+  dark:{plate:'#0b0f18',grid:'rgba(235,240,250,.07)',grid2:'rgba(235,240,250,.13)',axis:'rgba(235,240,250,.62)',axis2:'rgba(235,240,250,.4)',trace:'#5ea1f2',traceHop:'#9085e9',fill:'94,161,242',peak:'#e8b64a',avg:'#3fd0a4',idle:'#5b6577',radar:'#ff9f0a',sel:'rgba(10,132,255,.22)',navLine:'rgba(235,240,250,.55)',navDim:'rgba(0,0,0,.5)',navWin:'rgba(255,255,255,.62)',frz:'rgba(10,132,255,.06)',
+    ramp:[[0,11,15,24],[.3,18,58,107],[.6,42,120,214],[.82,134,182,239],[1,244,249,255]]},
+  light:{plate:'#fbfcfe',grid:'rgba(20,30,50,.07)',grid2:'rgba(20,30,50,.15)',axis:'rgba(20,30,50,.68)',axis2:'rgba(20,30,50,.46)',trace:'#1d63bb',traceHop:'#5240c4',fill:'42,120,214',peak:'#a86a00',avg:'#00806a',idle:'#9aa3b2',radar:'#c76a00',sel:'rgba(0,122,255,.18)',navLine:'rgba(20,30,50,.6)',navDim:'rgba(20,30,50,.22)',navWin:'rgba(16,19,26,.62)',frz:'rgba(0,122,255,.05)',
+    ramp:[[0,251,252,254],[.3,190,216,246],[.6,42,120,214],[.82,16,66,129],[1,4,18,44]]},
+};
+
+// ════════════════════════════════════════════════════════
+//  STATE
+// ════════════════════════════════════════════════════════
+const newHop=()=>({
+  mode:'mux',pa:'sat',order:'seq',
+  channels:[{f:9.0,bw:100,dwell:10,share:25,g:0},{f:9.5,bw:100,dwell:10,share:25,g:0},{f:10.0,bw:100,dwell:10,share:25,g:1},{f:10.5,bw:100,dwell:10,share:25,g:1}],
+  groupSize:2,gDwell:{0:10,1:10},dwell:10,guard:50,loss:{sum:0,mux:0,summux:0},
+});
+const newLink=()=>({mode:'spj',R:50,Rj:100,sigma:10,G:35,sl:30,Lr:6,nf:4,np:16,D:13,Gj:10,Lj:3});
+const S={
+  tech:'spot',
+  radars:[{rf:9.5,pw:1.0,pri:1.0,bw:5,dbm:RADAR_DBM}],selRadar:0,
+  cf:9.5,pwr:500,budget:1100,
+  bw:{spot:50,barrage:2000,cover:50,pulse:100,unsync:800,swept:30},
+  lfm:false,lw:0.5,lr:5,jpw:50,jprf:1000,coverMul:3,
+  hop:newHop(),link:newLink(),
+  t:0,emitting:false,frozen:false,
+  det:'rms',slow:true,drag:'zoom',
+};
+const SET_DEF=()=>({techs:Object.fromEntries(Object.keys(TECHS).map(k=>[k,TECHS[k].def])),theme:'auto',glass:.55,refract:true,wall:false,unit:'rbw',rbw:0,peak:true,avg:true,im:true});
+const SET_KEY='ea-noise-sim-settings-v5';
+let SET=SET_DEF();
+try{const j=JSON.parse(localStorage.getItem(SET_KEY)||'null');if(j){const d=SET_DEF();SET={...d,...j,techs:{...d.techs,...(j.techs||{})}};}}catch(e){}
+function saveSet(){try{localStorage.setItem(SET_KEY,JSON.stringify(SET));}catch(e){}}
+const $=id=>document.getElementById(id);
+const MOTION_OK=!matchMedia('(prefers-reduced-motion:reduce)').matches;
+
+// ════════════════════════════════════════════════════════
+//  POWER SHARING  — one amplifier, N simultaneous channels
+// ════════════════════════════════════════════════════════
+function mulberry(a){return()=>{a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+const limMemo=new Map();
+// Fraction of P landing on each carrier of an envelope limiter, for arbitrary shares.
+function limiterShares(s){
+  const N=s.length;
+  if(N===1) return [1];
+  const eq=s.every(v=>Math.abs(v-s[0])<1e-6);
+  if(eq) return s.map(()=>LIM[N-2][0]/N);
+  const key=s.map(v=>v.toFixed(5)).join();
+  if(limMemo.has(key)) return limMemo.get(key);
+  const rnd=mulberry(N*7919),a=s.map(Math.sqrt),K=20000,re=new Float64Array(N),im=new Float64Array(N),c=new Float64Array(N),q=new Float64Array(N);
+  for(let n=0;n<K;n++){
+    let xr=0,xi=0;
+    for(let i=0;i<N;i++){const p=rnd()*2*Math.PI;c[i]=Math.cos(p);q[i]=Math.sin(p);xr+=a[i]*c[i];xi+=a[i]*q[i];}
+    const m=Math.hypot(xr,xi)||1;xr/=m;xi/=m;
+    for(let i=0;i<N;i++){re[i]+=xr*c[i]+xi*q[i];im[i]+=xi*c[i]-xr*q[i];}
+  }
+  const out=s.map((_,i)=>(re[i]*re[i]+im[i]*im[i])/K/K);
+  if(limMemo.size>64) limMemo.clear();
+  limMemo.set(key,out);
+  return out;
+}
+// Integer mixing vectors m with Σm=1, Σ|m|=order
+function enumIM(N,order){
+  const res=[],m=new Array(N).fill(0);
+  (function rec(i,pos,neg){
+    if(i===N){if(!pos&&!neg) res.push(m.slice());return;}
+    for(let v=-neg;v<=pos;v++){m[i]=v;rec(i+1,v>0?pos-v:pos,v<0?neg+v:neg);}
+    m[i]=0;
+  })(0,(order+1)/2,(order-1)/2);
+  return res;
+}
+const fact=n=>n<2?1:n*fact(n-1);
+// Lines radiated by one amplifier state. f,b in MHz, p in W, tau = gate length in s (0: continuous)
+function paLines(chs,P,pa,lossDb,tau){
+  const act=chs.filter(c=>c.w>0);
+  if(!act.length) return [];
+  const N=act.length,sum=act.reduce((a,c)=>a+c.w,0),s=act.map(c=>c.w/sum),L=Math.pow(10,-(lossDb||0)/10);
+  const line=(c,p)=>({f:c.f*1000,b:Math.max(c.bw,.01),p:p*L,tau,ch:c.i,im:0});
+  if(N===1) return [line(act[0],P)];
+  if(pa==='ideal') return act.map((c,i)=>line(c,P*s[i]));
+  if(pa==='linear'){
+    const A=s.reduce((a,v)=>a+Math.sqrt(v),0);
+    return act.map((c,i)=>line(c,P*s[i]/(A*A)));
+  }
+  const shares=limiterShares(s),out=act.map((c,i)=>line(c,P*shares[i]));
+  const T=LIM[N-2],base=P*T[0]/N*L,mix=(m,p)=>{
+    let f=0,b2=0;
+    m.forEach((v,i)=>{f+=v*act[i].f*1000;b2+=v*v*Math.max(act[i].bw,.01)**2;});
+    out.push({f,b:Math.sqrt(b2),p,tau,ch:-1,im:m.reduce((a,v)=>a+Math.abs(v),0)});
+  };
+  enumIM(N,3).forEach(m=>{
+    let rel=1,two=false;
+    m.forEach((v,i)=>{if(v){rel*=Math.pow(s[i]*N,Math.abs(v));if(v===2) two=true;}});
+    mix(m,base*Math.pow(10,(two?T[1]:T[2])/10)*rel);
+  });
+  if(N<=6){
+    const E5=(N===2?.0323:.035)*P*L,ms=enumIM(N,5),wt=ms.map(m=>{
+      let pf=6,qf=2,w=1;
+      m.forEach((v,i)=>{if(v>0)pf/=fact(v);if(v<0)qf/=fact(-v);w*=Math.pow(s[i],Math.abs(v));});
+      return pf*pf*qf*qf*w;
+    }),W=wt.reduce((a,v)=>a+v,0)||1;
+    ms.forEach((m,i)=>mix(m,E5*wt[i]/W));
+  }
+  return out;
+}
+// Hop schedule: slots of {on,guard,lines}; T=0 means continuous
+function hopSlots(h,P){
+  const ch=h.channels.map((c,i)=>({...c,i,w:h.mode==='mux'?1:+c.share||0}));
+  const g=Math.max(0,h.guard)*1e-6,loss=h.loss[h.mode]||0;
+  const total=(lines,n)=>h.pa==='sat'&&n>1?P*Math.pow(10,-loss/10):lines.reduce((a,l)=>a+l.p,0);
+  if(h.mode==='sum'){
+    const lines=paLines(ch,P,h.pa,loss,0),ids=ch.filter(c=>c.w>0).map(c=>c.i);
+    return {slots:[{on:1,guard:0,lines,ids,total:total(lines,ids.length)}],T:0};
+  }
+  const groups=h.mode==='mux'?ch.map(c=>({ids:[c],d:Math.max(0,+c.dwell||0)*1e-3})):
+    [...new Set(ch.map(c=>c.g))].sort((a,b)=>a-b).map(id=>({ids:ch.filter(c=>c.g===id),d:Math.max(0,+(h.gDwell[id]??h.dwell)||0)*1e-3}));
+  const slots=[];let T=0;
+  groups.forEach(G=>{
+    if(!G.d) return;
+    const on=Math.max(0,G.d-g);
+    const lines=on>0?paLines(G.ids,P,h.pa,loss,on):[],ids=G.ids.filter(c=>c.w>0).map(c=>c.i);
+    slots.push({on,guard:G.d-on,lines,ids,total:lines.length?total(lines,ids.length):0});
+    T+=G.d;
+  });
+  return {slots,T};
+}
+function channelStats(h,P){
+  const {slots,T}=hopSlots(h,P),out=h.channels.map(()=>({peak:0,avg:0,duty:0}));
+  let imAvg=0,meanOut=0,on=0;
+  slots.forEach(s=>{
+    const d=T?s.on/T:1;
+    meanOut+=s.total*d;imAvg+=s.total*d;
+    s.lines.forEach(l=>{
+      if(l.ch>=0){const c=out[l.ch];c.peak=Math.max(c.peak,l.p);c.avg+=l.p*d;c.duty+=d;imAvg-=l.p*d;}
+    });
+    on+=s.on;
+  });
+  if(imAvg<1e-9)imAvg=0;
+  return {ch:out,imAvg,meanOut,T,slots:slots.length,eff:T?on/T:1};
+}
+
+// ════════════════════════════════════════════════════════
+//  EMISSION PLAN  — layers of time-gated states
+// ════════════════════════════════════════════════════════
+function effBand(bwMHz){
+  const lo=Math.max(FMIN*1000,S.cf*1000-bwMHz/2),hi=Math.min(FMAX*1000,S.cf*1000+bwMHz/2);
+  return {f:(lo+hi)/2,b:Math.max(hi-lo,.1),lo,hi};
+}
+function staticLayer(slots,T,rand){return {slots,T,rand:!!rand,cache:null,w:new Float64Array(slots.length)};}
+function gateFrac(g,t0,t1){
+  if(!g) return 1;
+  const n0=Math.floor(t0/g.T),n1=Math.floor(t1/g.T);
+  if(n1-n0>8) return g.on/g.T;
+  let a=0;
+  for(let n=n0;n<=n1;n++){const s=n*g.T,e=s+g.on,x=Math.max(s,t0),y=Math.min(e,t1);if(y>x)a+=y-x;}
+  return a/Math.max(t1-t0,1e-15);
+}
+// Narrow noise moving linearly: in a window it fills a band, full density for a fraction of the time
+function sweepLayer(cfMHz,W,rate,b,p,gate){
+  const duty=gate?gate.on/gate.T:1,bt=W+b,tau=gate?gate.on:0;
+  return {
+    dyn:(t0,t1)=>{
+      const Ts=1/rate,a=t0/Ts,c=t1/Ts,gf=gateFrac(gate,t0,t1),segs=[];
+      if(c-a>=1) segs.push([0,1,1]);
+      else{
+        const fa=a-Math.floor(a),fb=fa+(c-a),dur=Math.max(c-a,1e-15);
+        if(fb<=1) segs.push([fa,fb,1]);
+        else{segs.push([fa,1,(1-fa)/dur]);segs.push([0,fb-1,(fb-1)/dur]);}
+      }
+      return segs.map(([x,y,tf])=>{
+        const span=W*(y-x),be=span+b;
+        return {line:{f:cfMHz-W/2+W*(x+y)/2,b:be,p:p*be/b,tau,ch:-2,im:0},w:tf*gf*b/be};
+      });
+    },
+    avgLines:[{f:cfMHz,b:bt,p:p*duty,tau,ch:-2,im:0}],
+    peakLines:[{f:cfMHz,b:bt,p:p*bt/b,tau,ch:-2,im:0}],
+  };
+}
+function sweepAnalysis(cfMHz,W,rate,b,p,gate){
+  const n=64,Ts=1/rate,slots=[];
+  for(let i=0;i<n;i++){
+    const f=cfMHz-W/2+W*(i+.5)/n,duty=gate?gate.on/gate.T:1;
+    slots.push({on:Ts/n*duty,guard:Ts/n*(1-duty),lines:[{f,b:Math.max(b,W/n),p:p*b/Math.max(b,W/n),tau:0,ch:-2,im:0}]});
+  }
+  return {slots,T:Ts};
+}
+function buildPlan(){
+  const P=S.pwr,layers=[];let an,step=0;
+  const tech=S.tech,bwSel=S.bw[tech],band=tech==='hopping'?null:effBand(bwSel);
+  const lw=S.lw*1000;
+  const swept=tech==='swept'||(S.lfm&&(tech==='spot'||tech==='pulse'));
+  const line=(f,b,p,tau)=>({f,b,p,tau:tau||0,ch:-2,im:0});
+  switch(tech){
+    case 'spot':
+    case 'barrage':{
+      if(!swept){
+        const slots=[{on:1,guard:0,lines:[line(band.f,band.b,P)]}];
+        layers.push(staticLayer(slots,0));an={slots,T:0};
+      }
+      break;
+    }
+    case 'pulse':{
+      const T=1/S.jprf,on=Math.min(S.jpw*1e-6,T);
+      if(!swept){
+        const cont=on>=T,slots=[{on:cont?1:on,guard:cont?0:T-on,lines:[line(band.f,band.b,P,cont?0:on)]}];
+        layers.push(staticLayer(slots,cont?0:T));an={slots,T:cont?0:T};step=cont?0:Math.sqrt(on*T);
+      }
+      break;
+    }
+    case 'cover':{
+      const r=S.radars[S.selRadar]||S.radars[0],T=r.pri*1e-3,on=Math.min(r.pw*S.coverMul*1e-6,T),cont=on>=T;
+      const slots=[{on:cont?1:on,guard:cont?0:T-on,lines:[line(r.rf*1000,Math.min(bwSel,4000),P,cont?0:on)]}];
+      layers.push(staticLayer(slots,cont?0:T));an={slots,T:cont?0:T};step=cont?0:Math.sqrt(on*T);
+      break;
+    }
+    case 'unsync':{
+      const b=Math.max(band.b*.18,2),lines=[];
+      for(let k=0;k<3;k++){
+        const am=band.b*.41,hz=(1.7+k*.8)*.25,base=band.f+(k-1)*band.b*.08;
+        layers.push({
+          dyn:(t0,t1)=>[{line:line(Math.min(FMAX*1000,Math.max(FMIN*1000,base+Math.sin(2*Math.PI*hz*t1)*am)),b,P/3),w:1}],
+          avgLines:[line(base,2*am+b,P/3)],peakLines:[line(base,2*am+b,P/3*(2*am+b)/b)],
+        });
+        lines.push(line(base,2*am+b,P/3));
+      }
+      an={slots:[{on:1,guard:0,lines}],T:0};
+      break;
+    }
+    case 'hopping':{
+      const H=hopSlots(S.hop,P);
+      layers.push(staticLayer(H.slots,H.T,S.hop.order==='rand'));
+      an={slots:H.slots,T:H.T,rand:S.hop.order==='rand'};
+      step=H.T&&H.slots.length?H.T/H.slots.length:0;
+      break;
+    }
+  }
+  if(swept){
+    let gate=null;
+    if(tech==='pulse'){const T=1/S.jprf,on=Math.min(S.jpw*1e-6,T);if(on<T)gate={on,T};}
+    const cf=S.cf*1000,w=Math.min(lw,2*Math.min(cf-FMIN*1000,FMAX*1000-cf)),b=Math.min(band.b,Math.max(w,1));
+    layers.push(sweepLayer(cf,w,S.lr,b,P,gate));
+    an=sweepAnalysis(cf,w,S.lr,b,P,gate);
+    step=1/S.lr/8;
+  }
+  return {layers,an,step};
+}
+function slowSpeed(){return plan.step?Math.min(1,plan.step/0.4):1;}
+
+// Fraction of the window [t0,t1] each slot of a layer is on
+function overlap(l,t0,t1){
+  const w=l.w,T=l.T,n=l.slots.length;
+  w.fill(0);
+  if(!T){if(n)w[0]=1;return w;}
+  const a=Math.floor(t0/T),b=Math.floor(t1/T),win=Math.max(t1-t0,1e-15);
+  if(b-a>8){for(let k=0;k<n;k++)w[k]=l.slots[k].on/T;return w;}
+  for(let c=a;c<=b;c++){
+    const ord=l.rand?perm(n,c):null;
+    let s=c*T;
+    for(let i=0;i<n;i++){
+      const k=ord?ord[i]:i,sl=l.slots[k],e=s+sl.on,x=Math.max(s,t0),y=Math.min(e,t1);
+      if(y>x)w[k]+=(y-x)/win;
+      s=e+sl.guard;
+    }
+  }
+  return w;
+}
+const permMemo=new Map();
+function perm(n,c){
+  const key=n*1e9+c;
+  if(permMemo.has(key)) return permMemo.get(key);
+  const rnd=mulberry(c*2654435761>>>0),o=[...Array(n).keys()];
+  for(let i=n-1;i>0;i--){const j=Math.floor(rnd()*(i+1));[o[i],o[j]]=[o[j],o[i]];}
+  if(permMemo.size>256) permMemo.clear();
+  permMemo.set(key,o);
+  return o;
+}
+
+// ════════════════════════════════════════════════════════
+//  SPECTRUM ENGINE
+//  Line = flat noise block seen through a Gaussian RBW filter, closed form so a
+//  block narrower than a bin is never missed and total power is conserved.
+// ════════════════════════════════════════════════════════
+const PHI_N=8192,PHI=new Float64Array(PHI_N+1);
+(function(){
+  // Normal CDF by trapezoidal integration of the pdf
+  let acc=0;const dz=12/PHI_N,pdf=z=>Math.exp(-z*z/2)/Math.sqrt(2*Math.PI);
+  for(let i=0;i<=PHI_N;i++){const z=-6+i*dz;PHI[i]=acc;acc+=(pdf(z)+pdf(z+dz))/2*dz;}
+})();
+function phi(z){
+  if(z<=-6) return Math.exp(-z*z/2)/(-z*2.5066283);if(z>=6) return 1;
+  const u=(z+6)/12*PHI_N,i=u|0;
+  return PHI[i]+(PHI[i+1]-PHI[i])*(u-i);
+}
+// f0 and df in MHz; rbw is the 3 dB width in MHz
+function addLine(L,arr,f0,df,n,rbw){
+  const sr=rbw/2.355,nbw=sr*Math.sqrt(2*Math.PI),nu=L.tau>0?1e-6/L.tau:0;
+  const se=Math.min(.04*L.b,8),sg=.188*nu,sig=Math.sqrt(sr*sr+se*se+sg*sg),h=L.b/2,A=L.p*nbw/L.b;
+  const i0=Math.max(0,Math.ceil((L.f-h-9*sig-f0)/df)),i1=Math.min(n-1,Math.floor((L.f+h+9*sig-f0)/df));
+  for(let i=i0;i<=i1;i++){
+    // Evaluated on the falling side: keeps precision far down the skirt
+    const d=-Math.abs(f0+i*df-L.f);
+    arr[i]+=A*(phi((d+h)/sig)-phi((d-h)/sig));
+  }
+  // Gating skirts: a gate of length τ spreads the band as sinc² (−6 dB/oct), and its finite
+  // rise time (10% of τ, at most 100 ns) steepens them past 0.35/tr like a trapezoidal pulse
+  if(nu>0&&!L.im&&nu>2e-4*Math.max(df,L.b*1e-2)){
+    const k=nu/(2*Math.PI*Math.PI),fc=.35e-6/Math.min(.1*L.tau,1e-7);
+    for(let i=0;i<n;i++){
+      const d=Math.abs(f0+i*df-L.f);
+      if(d>h){const e=d-h;arr[i]+=A*k*(1/Math.max(e,sig)-1/(d+h))/(1+e*e/(fc*fc));}
+    }
+  }
+}
+function autoRBW(span){
+  const t=span/(NB-1),e=Math.pow(10,Math.floor(Math.log10(t)));
+  for(const m of [1,2,5,10]) if(m*e>=t*.999) return m*e;
+  return 10*e;
+}
+const view={f0:FMIN,f1:FMAX,tf0:FMIN,tf1:FMAX,ref:70,range:180,hist:[]};
+let plan=buildPlan(),planDirty=true,cacheDirty=true;
+let rbwNow=10,dfNow=10,f0Now=2000;
+let radarLayer=null,floorW=1e-11,unitOff=0;
+const avgLin=new Float64Array(NB),peakLin=new Float64Array(NB),scratch=new Float64Array(NB),lin=new Float64Array(NB);
+const trace=new Float32Array(NB),avgDb=new Float32Array(NB),peakDb=new Float32Array(NB);
+const RT=65536,UT=new Float32Array(RT),LN=new Float32Array(RT),EX=new Float32Array(RT);
+(function(){
+  const r=mulberry(2024);
+  for(let i=0;i<RT;i++){
+    const u=Math.max(r(),1e-9),v=r(),g=Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);
+    UT[i]=r();LN[i]=Math.pow(10,1.05*g/10);EX[i]=-Math.log(Math.max(r(),1e-9));
+  }
+})();
+let rndOff=0;
+function visibleLines(lines){return SET.im?lines:lines.filter(l=>!l.im);}
+function fillSlot(arr,lines){
+  arr.fill(0);
+  for(const l of visibleLines(lines)) addLine(l,arr,f0Now,dfNow,NB,rbwNow);
+}
+function rebuildCache(){
+  const span=(view.f1-view.f0)*1000;
+  f0Now=view.f0*1000;dfNow=span/(NB-1);
+  rbwNow=Math.max(SET.rbw||autoRBW(span),dfNow);
+  floorW=Math.pow(10,(-174+10*Math.log10(rbwNow*1e6)+NF_DB)/10)/1000;
+  unitOff=SET.unit==='psd'?-10*Math.log10(rbwNow*1.0645):0;
+  // Radars are received, not radiated: always on the display
+  const rl=S.radars.filter(r=>r.rf>=FMIN&&r.rf<=FMAX).map(r=>({f:r.rf*1000,b:Math.max(r.bw,.01),p:radarRxW(r),tau:r.pw*1e-6,ch:-3,im:0}));
+  radarLayer=radarLayer||new Float64Array(NB);fillSlot(radarLayer,rl);
+  avgLin.fill(0);peakLin.fill(0);
+  (S.emitting?plan.layers:[]).forEach(l=>{
+    if(l.dyn){
+      l.buf=l.buf||[new Float64Array(NB),new Float64Array(NB)];
+      scratch.fill(0);l.avgLines.forEach(x=>addLine(x,scratch,f0Now,dfNow,NB,rbwNow));
+      for(let i=0;i<NB;i++)avgLin[i]+=scratch[i];
+      scratch.fill(0);l.peakLines.forEach(x=>addLine(x,scratch,f0Now,dfNow,NB,rbwNow));
+      for(let i=0;i<NB;i++)peakLin[i]+=scratch[i];
+      return;
+    }
+    if(!l.cache||l.cache.length!==l.slots.length) l.cache=l.slots.map(()=>new Float64Array(NB));
+    const T=l.T,pk=new Float64Array(NB);
+    l.slots.forEach((s,k)=>{
+      fillSlot(l.cache[k],s.lines);
+      const d=T?s.on/T:1,c=l.cache[k];
+      for(let i=0;i<NB;i++){avgLin[i]+=c[i]*d;if(c[i]>pk[i])pk[i]=c[i];}
+    });
+    for(let i=0;i<NB;i++)peakLin[i]+=pk[i];
+  });
+  for(let i=0;i<NB;i++){
+    avgDb[i]=toDb(avgLin[i]+radarLayer[i]+floorW);
+    peakDb[i]=toDb(peakLin[i]+radarLayer[i]+floorW);
+  }
+  cacheDirty=false;
+}
+const toDb=w=>10*Math.log10(w)+30+unitOff;
+// One acquisition over [t0,t1] with the selected detector
+function computeTrace(t0,t1,det,out){
+  lin.fill(0);
+  const add=(arrs,w,n)=>{
+    if(det==='rms'){
+      for(let k=0;k<n;k++){const v=w[k];if(v<=0)continue;const a=arrs[k];for(let i=0;i<NB;i++)lin[i]+=v*a[i];}
+    }else if(det==='max'){
+      for(let i=0;i<NB;i++){let m=0;for(let k=0;k<n;k++)if(w[k]>1e-9&&arrs[k][i]>m)m=arrs[k][i];lin[i]+=m;}
+    }else{
+      for(let i=0;i<NB;i++){
+        const u=UT[(rndOff+i*13)&(RT-1)];let acc=0;
+        for(let k=0;k<n;k++){acc+=w[k];if(u<acc){lin[i]+=arrs[k][i];break;}}
+      }
+    }
+  };
+  if(S.emitting) plan.layers.forEach(l=>{
+    if(l.dyn){
+      const seg=l.dyn(t0,t1),ws=[],arrs=[];
+      seg.forEach((s,k)=>{l.buf[k].fill(0);addLine(s.line,l.buf[k],f0Now,dfNow,NB,rbwNow);arrs.push(l.buf[k]);ws.push(s.w);});
+      add(arrs,ws,seg.length);
+    }else if(l.cache) add(l.cache,overlap(l,t0,t1),l.slots.length);
+  });
+  // Detector statistics: RMS/Max read smooth, Sample reads a raw exponential power sample
+  const tbl=det==='sample'?EX:LN,oU=unitOff;
+  for(let i=0;i<NB;i++){
+    const v=(lin[i]+radarLayer[i]+floorW)*tbl[(rndOff+i*7)&(RT-1)];
+    out[i]=10*Math.log10(v)+30+oU;
+  }
+}
+function coverage(){
+  const an=plan.an;
+  return S.radars.map((r,ri)=>{
+    const fl=(r.rf*1000-r.bw/2),fh=(r.rf*1000+r.bw/2),T=an.T;
+    let jAvg=0,jPk=0;
+    const inb=an.slots.map(s=>{
+      let w=0;
+      s.lines.forEach(l=>{
+        const a=Math.max(l.f-l.b/2,fl),b=Math.min(l.f+l.b/2,fh);
+        if(b>a)w+=l.p*(b-a)/l.b;
+      });
+      return w;
+    });
+    inb.forEach((w,k)=>{jAvg+=w*(T?an.slots[k].on/T:1);if(w>jPk)jPk=w;});
+    const hit=k=>inb[k]>0&&inb[k]>=jPk*.01;
+    let on=0,gap=0;
+    if(!T){gap=inb.some((_,k)=>hit(k))?0:Infinity;on=gap?0:1;}
+    else{
+      // Longest off-time around the cycle
+      let cur=0,first=null,best=0;
+      an.slots.forEach((s,k)=>{
+        if(hit(k)){if(first===null)first=cur;else best=Math.max(best,cur);cur=s.guard;on+=s.on/T;}
+        else cur+=s.on+s.guard;
+      });
+      gap=first===null?Infinity:Math.max(best,cur+first);
+      if(an.rand&&gap<Infinity){const cnt=an.slots.filter((_,k)=>hit(k)).length;if(cnt<an.slots.length)gap=Math.min(2*T,gap+T-T*on);}
+    }
+    const prH=r.pri*1e-3,pwH=r.pw*1e-6;
+    let v,c;
+    if(gap===Infinity){v='✕ No overlap';c='vn';}
+    else if(gap<=0){v='✓ Continuous';c='vg';}
+    else if(gap<=pwH){v='✓ Every pulse';c='vg';}
+    else if(gap<prH){v='◐ Range gaps';c='vy';}
+    else{v='⚠ Pulses missed';c='vo';}
+    return {ri,r,jAvg,jPk,on,gap,v,c};
+  });
+}
+
+// ════════════════════════════════════════════════════════
+//  DRAWING
+// ════════════════════════════════════════════════════════
+const specC=$('spectrumCanvas'),specX=specC.getContext('2d');
+const wfC=$('waterfallCanvas'),wfX=wfC.getContext('2d',{willReadFrequently:false});
+const navC=$('navCanvas'),navX=navC.getContext('2d');
+const DPR=Math.min(window.devicePixelRatio||1,2),GUT=46,AX=22;
+const MONO='ui-monospace,"SF Mono",Menlo,Consolas,monospace',MONO10='10px '+MONO;
+let W=0,H=0,wfW=0,wfH=0,navW=0,navDirty=true,wfDirty=true;
+let theme='dark',pal=PAL.dark,hover=null,boxSel=null;
+const dBfmt=v=>(v>0?'+':'')+v.toFixed(1);
+const x2f=x=>view.f0+(x-GUT)/(W-GUT)*(view.f1-view.f0);
+const f2x=f=>GUT+(f-view.f0)/(view.f1-view.f0)*(W-GUT);
+const y2px=(db,h)=>(view.ref-db)/view.range*h;
+function fmtSpan(g){return g>=1?(+g.toFixed(3))+' GHz':g>=.001?(+(g*1000).toFixed(3))+' MHz':(+(g*1e6).toFixed(1))+' kHz';}
+function fmtHz(m){return m>=1000?(+(m/1000).toFixed(2))+' GHz':m>=1?(+m.toFixed(2))+' MHz':(+(m*1000).toFixed(2))+' kHz';}
+function fmtW(w){return w>=1e6?(+(w/1e6).toFixed(2))+' MW':w>=1e4?(+(w/1e3).toFixed(1))+' kW':w>=100?w.toFixed(0)+' W':w>=1?w.toFixed(1)+' W':w>=1e-3?(w*1000).toFixed(1)+' mW':w>=1e-6?(w*1e6).toFixed(1)+' µW':w>=1e-9?(w*1e9).toFixed(1)+' nW':w.toExponential(1)+' W';}
+function fmtT(s){if(s===Infinity)return '—';return s>=1?s.toFixed(2)+' s':s>=1e-3?(+(s*1e3).toFixed(2))+' ms':(+(s*1e6).toFixed(1))+' µs';}
+function chCol(i){return i<8?CH_COL[theme][i]:CH_COL.other;}
+
+function resizeCheck(){
+  const r=specC.getBoundingClientRect(),cw=Math.floor(r.width),ch=Math.floor(r.height);
+  if(cw&&ch&&(cw!==W||ch!==H)){
+    W=cw;H=ch;specC.width=cw*DPR;specC.height=ch*DPR;specX.setTransform(DPR,0,0,DPR,0,0);
+  }
+  const wr=wfC.getBoundingClientRect(),ww=Math.floor(wr.width),wh=Math.floor(wr.height);
+  if(ww&&wh&&(ww!==wfW||wh!==wfH)){wfW=ww;wfH=wh;wfC.width=ww*DPR;wfC.height=wh*DPR;wfDirty=true;}
+  const nr=navC.getBoundingClientRect(),nw=Math.floor(nr.width);
+  if(nw&&nw!==navW){navW=nw;navC.width=nw*DPR;navC.height=30*DPR;navX.setTransform(DPR,0,0,DPR,0,0);navDirty=true;}
+}
+function niceStep(range,target){
+  const raw=range/target,e=Math.pow(10,Math.floor(Math.log10(raw)));
+  for(const m of [1,2,5,10]) if(m*e>=raw) return m*e;
+  return 10*e;
+}
+function pathTrace(arr,h,dash){
+  const span=W-GUT,cols=Math.ceil(span);
+  specX.beginPath();
+  if(NB>cols*1.5){
+    // Peak-preserving decimation to pixel columns
+    for(let c=0;c<=cols;c++){
+      const a=Math.floor(c/cols*(NB-1)),b=Math.min(NB-1,Math.floor((c+1)/cols*(NB-1)));
+      let m=arr[a];for(let i=a+1;i<=b;i++)if(arr[i]>m)m=arr[i];
+      const x=GUT+c,y=y2px(m,h);
+      c?specX.lineTo(x,y):specX.moveTo(x,y);
+    }
+  }else{
+    for(let i=0;i<NB;i++){const x=GUT+i/(NB-1)*span,y=y2px(arr[i],h);i?specX.lineTo(x,y):specX.moveTo(x,y);}
+  }
+}
+function drawSpectrum(){
+  if(!W) return;
+  const h=H-AX;
+  specX.clearRect(0,0,W,H);
+  specX.save();specX.font=MONO10;
+  const bottom=view.ref-view.range,yStep=niceStep(view.range,8),fspan=view.f1-view.f0,xStep=niceStep(fspan,W<560?5:10);
+  // Grid
+  specX.lineWidth=1;specX.strokeStyle=pal.grid;specX.beginPath();
+  for(let d=Math.ceil(bottom/yStep)*yStep;d<=view.ref;d+=yStep){const y=Math.round(y2px(d,h))+.5;specX.moveTo(GUT,y);specX.lineTo(W,y);}
+  for(let f=Math.ceil(view.f0/xStep)*xStep;f<=view.f1+1e-9;f+=xStep){const x=Math.round(f2x(f))+.5;specX.moveTo(x,0);specX.lineTo(x,h);}
+  specX.stroke();
+  specX.strokeStyle=pal.grid2;specX.beginPath();specX.moveTo(GUT+.5,0);specX.lineTo(GUT+.5,h);specX.moveTo(GUT,h+.5);specX.lineTo(W,h+.5);specX.stroke();
+  // Clip the plot area
+  specX.save();specX.beginPath();specX.rect(GUT,0,W-GUT,h);specX.clip();
+  // Jammer band
+  if(S.emitting&&S.tech!=='hopping'){
+    const b=effBand(S.tech==='swept'||(S.lfm&&(S.tech==='spot'||S.tech==='pulse'))?S.lw*1000:S.bw[S.tech]),rr=S.radars[S.selRadar]||S.radars[0];
+    const lo=S.tech==='cover'?rr.rf-S.bw.cover/2000:b.lo/1000,hi=S.tech==='cover'?rr.rf+S.bw.cover/2000:b.hi/1000;
+    specX.fillStyle=theme==='dark'?'rgba(255,69,58,.07)':'rgba(217,40,30,.06)';
+    specX.fillRect(f2x(lo),0,f2x(hi)-f2x(lo),h);
+  }
+  // Overlay envelopes
+  if(S.emitting&&SET.avg){
+    specX.setLineDash([2,3]);specX.lineWidth=1.3;specX.strokeStyle=pal.avg;pathTrace(avgDb,h);specX.stroke();
+  }
+  if(S.emitting&&SET.peak){
+    specX.setLineDash([6,4]);specX.lineWidth=1.2;specX.strokeStyle=pal.peak;pathTrace(peakDb,h);specX.stroke();
+  }
+  specX.setLineDash([]);
+  // Fill + trace
+  pathTrace(trace,h);
+  const col=S.emitting?(S.tech==='hopping'?pal.traceHop:pal.trace):pal.idle;
+  if(S.emitting){
+    const g=specX.createLinearGradient(0,0,0,h);
+    g.addColorStop(0,`rgba(${pal.fill},.26)`);g.addColorStop(.7,`rgba(${pal.fill},.05)`);g.addColorStop(1,`rgba(${pal.fill},0)`);
+    specX.save();specX.lineTo(W,h);specX.lineTo(GUT,h);specX.closePath();specX.fillStyle=g;specX.fill();specX.restore();
+    pathTrace(trace,h);
+  }
+  specX.lineJoin='round';specX.lineWidth=S.emitting?1.8:1.2;specX.strokeStyle=col;specX.stroke();
+  // Radars
+  specX.fillStyle=pal.axis;
+  S.radars.forEach((r,ri)=>{
+    if(r.rf<view.f0||r.rf>view.f1) return;
+    const x=f2x(r.rf);
+    specX.strokeStyle=pal.radar;specX.lineWidth=ri===S.selRadar?1.4:1;specX.setLineDash([5,3]);
+    specX.beginPath();specX.moveTo(x,0);specX.lineTo(x,h);specX.stroke();specX.setLineDash([]);
+    const tx=`R${ri+1} ${r.rf.toFixed(fspan<.5?4:3)}`,tw=specX.measureText(tx).width;
+    const lx=x+tw+8>W?x-tw-5:x+4;
+    specX.fillStyle=pal.axis;specX.fillText(tx,lx,50+ri*13);
+  });
+  // Hop channels: tick at the bottom, label in text ink, colored swatch carries identity
+  if(S.tech==='hopping'&&S.emitting){
+    const L=plan.layers[0],act=new Set();
+    if(L&&L.w) {let best=-1,bw=0;L.w.forEach((v,k)=>{if(v>bw){bw=v;best=k;}});if(best>=0)(L.slots[best].ids||[]).forEach(i=>act.add(i));}
+    let lastLbl=-1e9;
+    S.hop.channels.map((c,i)=>[c,i]).sort((a,b)=>a[0].f-b[0].f).forEach(([c,i])=>{
+      if(c.f<view.f0||c.f>view.f1) return;
+      const x=f2x(c.f),on=act.has(i);
+      specX.fillStyle=chCol(i);specX.globalAlpha=on?1:.55;
+      specX.fillRect(x-1.5,h-(on?11:7),3,on?11:7);specX.globalAlpha=1;
+      if(x-lastLbl<26) return;
+      lastLbl=x;
+      specX.fillStyle=on?pal.axis:pal.axis2;
+      specX.fillText('H'+(i+1),x+4,h-4);
+    });
+  }
+  // Box zoom
+  if(boxSel){
+    const a=Math.min(boxSel.a,boxSel.b),b=Math.max(boxSel.a,boxSel.b);
+    specX.fillStyle=pal.sel;specX.fillRect(a,0,b-a,h);
+    specX.strokeStyle=theme==='dark'?'#0a84ff':'#007aff';specX.lineWidth=1;specX.strokeRect(a+.5,.5,b-a-1,h-1);
+  }
+  // Crosshair
+  if(hover&&hover.x>=GUT){
+    specX.strokeStyle=pal.axis2;specX.lineWidth=1;specX.beginPath();
+    const hx=Math.round(hover.x)+.5;specX.moveTo(hx,0);specX.lineTo(hx,h);specX.stroke();
+    const i=Math.round((hover.x-GUT)/(W-GUT)*(NB-1));
+    if(i>=0&&i<NB){const y=y2px(trace[i],h);specX.fillStyle=col;specX.beginPath();specX.arc(hx,y,3.5,0,7);specX.fill();specX.strokeStyle=pal.plate;specX.lineWidth=1.5;specX.stroke();}
+  }
+  if(S.frozen){specX.fillStyle=pal.frz;specX.fillRect(GUT,0,W-GUT,h);}
+  specX.restore();
+  // Axis labels
+  specX.fillStyle=pal.axis;specX.textAlign='right';
+  for(let d=Math.ceil(bottom/yStep)*yStep;d<=view.ref;d+=yStep){
+    const y=y2px(d,h);if(y<9) continue;
+    specX.fillText(''+Math.round(d*10)/10,GUT-5,y+3.5);
+  }
+  specX.fillStyle=pal.axis2;specX.textAlign='left';
+  specX.fillText(SET.unit==='psd'?'dBm/MHz':'dBm',3,10);
+  specX.fillStyle=pal.axis;specX.textAlign='center';
+  const dec=Math.max(0,-Math.floor(Math.log10(xStep)+1e-9));
+  for(let f=Math.ceil(view.f0/xStep)*xStep;f<=view.f1+1e-9;f+=xStep){
+    const x=f2x(f);if(x<GUT+14||x>W-16) continue;
+    specX.fillText(f.toFixed(dec),x,H-7);
+  }
+  specX.fillStyle=pal.axis2;specX.textAlign='left';specX.fillText('GHz',3,H-7);
+  specX.restore();
+}
+
+// Waterfall — ring of rows that keeps its own frequency window, so a zoom re-maps history
+const WF_ROWS=260,WF_MS=33,WF_ROW_H=2,wfRows=[];let wfHead=0,wfLut=null;
+function buildLut(){
+  const r=pal.ramp,lut=new Uint8ClampedArray(256*3);
+  for(let i=0;i<256;i++){
+    const t=i/255;let k=0;while(k<r.length-2&&t>r[k+1][0])k++;
+    const a=r[k],b=r[k+1],u=(t-a[0])/(b[0]-a[0]);
+    for(let c=0;c<3;c++)lut[i*3+c]=a[c+1]+(b[c+1]-a[c+1])*u;
+  }
+  wfLut=lut;
+}
+function wfPaintRow(row,img,yPx,wPx,gutPx){
+  const d=img.data,base=yPx*img.width*4,bot=view.ref-view.range,rs=255/view.range,f0=view.f0,fs=(view.f1-view.f0)/(wPx-gutPx-1||1),rf=(NB-1)/(row.f1-row.f0);
+  for(let x=gutPx;x<wPx;x++){
+    const f=f0+(x-gutPx)*fs;let v=0;
+    if(f>=row.f0&&f<=row.f1) v=(row.d[Math.round((f-row.f0)*rf)]-bot)*rs;
+    const i=v<0?0:v>255?255:v|0,o=base+x*4;
+    d[o]=wfLut[i*3];d[o+1]=wfLut[i*3+1];d[o+2]=wfLut[i*3+2];d[o+3]=255;
+  }
+}
+function wfFull(){
+  if(!wfW||!wfH) return;
+  const wPx=wfC.width,hPx=wfC.height,gut=Math.round(GUT*DPR),img=wfX.createImageData(wPx,hPx),rp=Math.max(1,Math.round(WF_ROW_H*DPR));
+  const d=img.data;
+  for(let o=0;o<d.length;o+=4){d[o]=wfLut[0];d[o+1]=wfLut[1];d[o+2]=wfLut[2];d[o+3]=255;}
+  const n=wfRows.length,nr=Math.min(n,Math.ceil(hPx/rp));
+  for(let k=0;k<nr;k++){
+    const row=wfRows[(wfHead-1-k+WF_ROWS*2)%WF_ROWS];if(!row) break;
+    const y0=k*rp;
+    wfPaintRow(row,img,y0,wPx,gut);
+    for(let r=1;r<rp&&y0+r<hPx;r++) d.copyWithin((y0+r)*wPx*4,y0*wPx*4,(y0+1)*wPx*4);
+  }
+  // Empty gutter
+  for(let y=0;y<hPx;y++){for(let x=0;x<gut;x++){d[(y*wPx+x)*4+3]=0;}}
+  wfX.putImageData(img,0,0);
+  wfDirty=false;
+}
+function wfNewRow(){
+  let row=wfRows[wfHead];
+  if(!row){row={d:new Float32Array(NB),f0:0,f1:0};wfRows[wfHead]=row;}
+  row.f0=view.f0;row.f1=view.f1;
+  computeTrace(wfT0,S.t,S.det,row.d);
+  wfT0=S.t;wfHead=(wfHead+1)%WF_ROWS;
+  if(wfDirty||!wfW) return;
+  const wPx=wfC.width,hPx=wfC.height,gut=Math.round(GUT*DPR),rp=Math.max(1,Math.round(WF_ROW_H*DPR));
+  wfX.setTransform(1,0,0,1,0,0);
+  wfX.drawImage(wfC,gut,0,wPx-gut,hPx-rp,gut,rp,wPx-gut,hPx-rp);
+  const img=wfX.createImageData(wPx,rp);
+  wfPaintRow(row,img,0,wPx,gut);
+  const d=img.data;
+  for(let r=1;r<rp;r++) d.copyWithin(r*wPx*4,0,wPx*4);
+  wfX.putImageData(img,0,0);
+}
+const ovArr=new Float64Array(480);
+function drawNav(){
+  if(!navW) return;
+  const h=30,g=GUT,w=navW-g;
+  navX.clearRect(0,0,navW,h);
+  if(navDirty){
+    ovArr.fill(0);
+    const df=16000/479,add=l=>addLine(l,ovArr,2000,df,480,df);
+    if(S.emitting){
+      plan.layers.forEach(l=>{
+        if(l.dyn) l.avgLines.forEach(add);
+        else l.slots.forEach(s=>visibleLines(s.lines).forEach(x=>add({...x,p:x.p*(l.T?s.on/l.T:1),tau:0})));
+      });
+    }
+    S.radars.forEach(r=>add({f:r.rf*1000,b:Math.max(r.bw,.01),p:radarRxW(r),tau:0,im:0}));
+    navDirty=false;
+  }
+  navX.beginPath();
+  for(let i=0;i<480;i++){
+    const db=10*Math.log10(ovArr[i]+1e-12)+30,y=h-2-(db+90)/160*(h-4),x=g+i/479*w;
+    i?navX.lineTo(x,y):navX.moveTo(x,y);
+  }
+  navX.strokeStyle=pal.navLine;navX.lineWidth=1;navX.stroke();
+  const a=g+(view.f0-FMIN)/(FMAX-FMIN)*w,b=g+(view.f1-FMIN)/(FMAX-FMIN)*w;
+  navX.fillStyle=pal.navDim;navX.fillRect(g,0,a-g,h);navX.fillRect(b,0,navW-b,h);
+  navX.strokeStyle=pal.navWin;navX.lineWidth=1.2;
+  const ww=Math.max(b-a,3);
+  navX.beginPath();navX.roundRect(a+.7,1,ww-1.4,h-2,5);navX.stroke();
+  navX.fillStyle=pal.axis2;navX.font='9px '+MONO;
+  navX.fillText('2–18',4,19);
+}
+
+// ════════════════════════════════════════════════════════
+//  VIEW / ZOOM
+// ════════════════════════════════════════════════════════
+function clampView(f0,f1){
+  let s=Math.max(MIN_SPAN,Math.min(FMAX-FMIN,f1-f0)),c=(f0+f1)/2;
+  c=Math.max(FMIN+s/2,Math.min(FMAX-s/2,c));
+  return [c-s/2,c+s/2];
+}
+function setView(f0,f1,push,instant){
+  [f0,f1]=clampView(f0,f1);
+  if(push&&(Math.abs(f0-view.tf0)>1e-9||Math.abs(f1-view.tf1)>1e-9)){
+    view.hist.push([view.tf0,view.tf1]);if(view.hist.length>40)view.hist.shift();
+  }
+  view.tf0=f0;view.tf1=f1;
+  if(instant||!MOTION_OK){view.f0=f0;view.f1=f1;viewChanged();}
+  $('backBtn').disabled=!view.hist.length;
+  syncViewInputs();
+}
+function viewChanged(){cacheDirty=true;wfDirty=true;}
+function animateView(dt){
+  const dA=view.tf0-view.f0,dB=view.tf1-view.f1;
+  if(!dA&&!dB) return;
+  const span=view.tf1-view.tf0;
+  if(Math.abs(dA)<span*1e-3&&Math.abs(dB)<span*1e-3){view.f0=view.tf0;view.f1=view.tf1;}
+  else{const k=1-Math.exp(-dt/.06);view.f0+=dA*k;view.f1+=dB*k;}
+  viewChanged();
+}
+function zoomBy(k,cx){
+  const c=cx!==undefined?cx:(view.tf0+view.tf1)/2,a=view.tf0,b=view.tf1;
+  setView(c-(c-a)*k,c+(b-c)*k,cx===undefined);
+}
+function fitView(){setView(FMIN,FMAX,true);}
+function viewBack(){const p=view.hist.pop();if(p)setView(p[0],p[1],false);}
+function panBy(df){
+  const s=view.tf1-view.tf0;let a=view.tf0+df;
+  a=Math.max(FMIN,Math.min(FMAX-s,a));
+  view.tf0=a;view.tf1=a+s;view.f0=a;view.f1=a+s;viewChanged();syncViewInputs();
+}
+function emissionExtent(){
+  const ls=[];
+  plan.an.slots.forEach(s=>s.lines.forEach(l=>{if(!l.im)ls.push(l);}));
+  if(!ls.length) return [S.cf-.1,S.cf+.1];
+  return [Math.min(...ls.map(l=>l.f-l.b/2))/1000,Math.max(...ls.map(l=>l.f+l.b/2))/1000];
+}
+function zoomTo(what){
+  if(what==='radar'){
+    const r=S.radars[S.selRadar]||S.radars[0],s=Math.max(r.bw/1000*8,.02);
+    setView(r.rf-s/2,r.rf+s/2,true);
+  }else{
+    const [a,b]=emissionExtent(),m=Math.max((b-a)*.14,.01);
+    setView(a-m,b+m,true);
+  }
+}
+function viewFromInputs(){
+  const a=parseFloat($('vStart').value),b=parseFloat($('vStop').value);
+  if(!isNaN(a)&&!isNaN(b)&&b>a) setView(a,b,true); else syncViewInputs();
+}
+function syncViewInputs(){
+  const d=view.tf1-view.tf0<.1?4:3;
+  if(document.activeElement!==$('vStart'))$('vStart').value=view.tf0.toFixed(d);
+  if(document.activeElement!==$('vStop'))$('vStop').value=view.tf1.toFixed(d);
+}
+function zoomY(k,dbC){
+  const r=Math.max(10,Math.min(260,view.range*k)),c=dbC!==undefined?dbC:view.ref-view.range/2;
+  const fr=(view.ref-c)/view.range;
+  view.ref=Math.max(-160,Math.min(110,c+fr*r));view.range=r;wfDirty=true;
+}
+function autoY(){
+  let mx=-Infinity,mn=Infinity;
+  const src=S.emitting&&SET.peak?peakDb:trace;
+  for(let i=0;i<NB;i++){if(src[i]>mx)mx=src[i];if(trace[i]<mn)mn=trace[i];}
+  const top=Math.ceil((mx+6)/5)*5,bot=Math.floor((mn-4)/5)*5;
+  view.ref=top;view.range=Math.max(10,top-bot);wfDirty=true;
+}
+
+// Pointer gestures on the spectrum
+const ptrs=new Map();let drag=null,pinch=null,lastTap=0;
+function plotPos(e){const r=specC.getBoundingClientRect();return {x:e.clientX-r.left,y:e.clientY-r.top};}
+specC.addEventListener('wheel',e=>{
+  e.preventDefault();
+  const p=plotPos(e),k=Math.exp(e.deltaY*(e.ctrlKey?.012:.0016));
+  if(e.shiftKey||p.x<GUT){
+    const h=H-AX;zoomY(k,view.ref-p.y/h*view.range);return;
+  }
+  if(Math.abs(e.deltaX)>Math.abs(e.deltaY)*1.5){panBy(e.deltaX/(W-GUT)*(view.tf1-view.tf0));return;}
+  const c=x2f(p.x),a=view.tf0,b=view.tf1;
+  setView(c-(c-a)*k,c+(b-c)*k,false,true);
+},{passive:false});
+specC.addEventListener('pointerdown',e=>{
+  specC.setPointerCapture(e.pointerId);
+  const p=plotPos(e);ptrs.set(e.pointerId,p);
+  if(ptrs.size===2){
+    const [a,b]=[...ptrs.values()];
+    pinch={d:Math.abs(a.x-b.x)||1,c:x2f((a.x+b.x)/2),f0:view.tf0,f1:view.tf1};drag=null;boxSel=null;return;
+  }
+  if(p.x<GUT){drag={t:'y',y:p.y,ref:view.ref};return;}
+  const pan=(S.drag==='pan')!==e.shiftKey||e.button===1;
+  drag=pan?{t:'pan',x:p.x,f0:view.tf0}:{t:'box',x:p.x};
+});
+specC.addEventListener('pointermove',e=>{
+  const p=plotPos(e);
+  if(ptrs.has(e.pointerId))ptrs.set(e.pointerId,p);
+  if(pinch&&ptrs.size>=2){
+    const [a,b]=[...ptrs.values()],d=Math.abs(a.x-b.x)||1,k=pinch.d/d,mx=(a.x+b.x)/2;
+    const nf0=pinch.c-(pinch.c-pinch.f0)*k,nf1=pinch.c+(pinch.f1-pinch.c)*k;
+    const frac=(mx-GUT)/(W-GUT),span=nf1-nf0;
+    setView(pinch.c-frac*span,pinch.c+(1-frac)*span,false,true);
+    return;
+  }
+  if(drag){
+    if(drag.t==='pan'){
+      const nf=drag.f0-(p.x-drag.x)/(W-GUT)*(view.tf1-view.tf0);panBy(nf-view.tf0);
+    }else if(drag.t==='box'){
+      if(Math.abs(p.x-drag.x)>5) boxSel={a:drag.x,b:Math.max(GUT,Math.min(W,p.x))};
+    }else{
+      view.ref=Math.max(-160,Math.min(110,drag.ref+(p.y-drag.y)/(H-AX)*view.range));wfDirty=true;
+    }
+  }
+  hover=e.pointerType==='mouse'||drag||ptrs.size?p:hover;
+  showTip(e.clientX,e.clientY,p);
+});
+function endPtr(e){
+  const hadBox=boxSel;
+  ptrs.delete(e.pointerId);
+  if(ptrs.size<2&&pinch){
+    if(pinch){view.hist.push([pinch.f0,pinch.f1]);$('backBtn').disabled=false;}
+    pinch=null;drag=null;return;
+  }
+  if(drag&&drag.t==='box'&&hadBox){
+    const a=x2f(Math.min(hadBox.a,hadBox.b)),b=x2f(Math.max(hadBox.a,hadBox.b));
+    setView(a,b,true);
+  }else if(drag&&drag.t!=='y'&&e.pointerType!=='mouse'&&Math.abs(plotPos(e).x-drag.x)<8){
+    const now=performance.now();
+    if(now-lastTap<320)fitView();
+    lastTap=now;
+  }
+  boxSel=null;drag=null;
+  if(e.pointerType!=='mouse'){hover=null;hideTip();}
+}
+specC.addEventListener('pointerup',endPtr);
+specC.addEventListener('pointercancel',endPtr);
+specC.addEventListener('pointerleave',()=>{if(!drag){hover=null;hideTip();}});
+specC.addEventListener('dblclick',fitView);
+function hideTip(){$('tip').style.opacity='0';}
+function showTip(cx,cy,p){
+  if(p.x<GUT){hideTip();return;}
+  const f=x2f(p.x),i=Math.round((p.x-GUT)/(W-GUT)*(NB-1)),t=$('tip');
+  const d=view.f1-view.f0<.1?5:3;
+  let s=f.toFixed(d)+' GHz\n'+dBfmt(trace[Math.max(0,Math.min(NB-1,i))])+(SET.unit==='psd'?' dBm/MHz':' dBm');
+  if(S.tech==='hopping'&&S.emitting){
+    const c=S.hop.channels.findIndex(c=>Math.abs(c.f-f)*1000<=c.bw/2);
+    if(c>=0)s+='\nH'+(c+1);
+  }
+  t.textContent=s;
+  const tw=t.offsetWidth,th=t.offsetHeight;
+  t.style.left=Math.min(innerWidth-tw-6,cx+14)+'px';t.style.top=Math.max(4,Math.min(innerHeight-th-6,cy-th-10))+'px';t.style.opacity='1';
+}
+// Navigator
+let navDrag=null;
+function navX2f(x){return FMIN+(x-GUT)/(navW-GUT)*(FMAX-FMIN);}
+navC.addEventListener('pointerdown',e=>{
+  navC.setPointerCapture(e.pointerId);
+  const x=e.clientX-navC.getBoundingClientRect().left,f=navX2f(x),hit=Math.max(8/(navW-GUT)*(FMAX-FMIN),1e-6);
+  const mode=Math.abs(f-view.tf0)<hit?'l':Math.abs(f-view.tf1)<hit?'r':(f>view.tf0&&f<view.tf1?'m':'c');
+  if(mode==='c'){const s=view.tf1-view.tf0;setView(f-s/2,f+s/2,true);}
+  navDrag={mode:mode==='c'?'m':mode,x,f0:view.tf0,f1:view.tf1};
+  if(mode==='c'){navDrag.f0=view.tf0;navDrag.f1=view.tf1;}
+});
+navC.addEventListener('pointermove',e=>{
+  if(!navDrag) return;
+  const x=e.clientX-navC.getBoundingClientRect().left,df=(x-navDrag.x)/(navW-GUT)*(FMAX-FMIN);
+  if(navDrag.mode==='m'){const s=navDrag.f1-navDrag.f0;const a=Math.max(FMIN,Math.min(FMAX-s,navDrag.f0+df));setView(a,a+s,false,true);}
+  else if(navDrag.mode==='l') setView(Math.min(navDrag.f0+df,navDrag.f1-MIN_SPAN),navDrag.f1,false,true);
+  else setView(navDrag.f0,Math.max(navDrag.f1+df,navDrag.f0+MIN_SPAN),false,true);
+});
+const navEnd=()=>{
+  if(navDrag&&(navDrag.f0!==view.tf0||navDrag.f1!==view.tf1)) view.hist.push([navDrag.f0,navDrag.f1]);
+  navDrag=null;$('backBtn').disabled=!view.hist.length;
+};
+navC.addEventListener('pointerup',navEnd);navC.addEventListener('pointercancel',navEnd);
+addEventListener('keydown',e=>{
+  if(e.key==='Escape'){closeSheet('hopSheet');closeSheet('setSheet');closeSheet('linkSheet');return;}
+  if(/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)||document.querySelector('.scrim.open')) return;
+  const s=view.tf1-view.tf0;
+  if(e.key==='+'||e.key==='=')zoomBy(1/1.6);
+  else if(e.key==='-')zoomBy(1.6);
+  else if(e.key==='0')fitView();
+  else if(e.key==='a'||e.key==='A')autoY();
+  else if(e.key==='ArrowLeft')panBy(-s*.1);
+  else if(e.key==='ArrowRight')panBy(s*.1);
+  else if(e.key==='Backspace')viewBack();
+  else return;
+  e.preventDefault();
+});
+
+// ════════════════════════════════════════════════════════
+//  SEGMENTED CONTROLS
+// ════════════════════════════════════════════════════════
+function buildSeg(el,items,cur,fn){
+  el.innerHTML='';
+  const lens=document.createElement('span');lens.className='lens';el.appendChild(lens);
+  items.forEach(([k,label,title])=>{
+    const b=document.createElement('button');b.type='button';b.textContent=label;if(title)b.title=title;
+    b.dataset.k=k;b.setAttribute('aria-pressed',k===cur);if(k===cur)b.classList.add('on');
+    b.onclick=()=>fn(k);el.appendChild(b);
+  });
+  placeLens(el);
+}
+function placeLens(el){
+  const on=el.querySelector('button.on'),l=el.querySelector('.lens');
+  if(!l) return;
+  if(!on||!on.offsetWidth){l.style.opacity=on?'':'0';return;}
+  l.style.opacity='1';
+  l.style.left=on.offsetLeft+'px';l.style.top=on.offsetTop+'px';l.style.width=on.offsetWidth+'px';l.style.height=on.offsetHeight+'px';
+}
+function placeAllLens(){document.querySelectorAll('.seg').forEach(placeLens);}
+addEventListener('resize',placeAllLens);
+function renderTechs(){
+  const vis=Object.keys(TECHS).filter(k=>SET.techs[k]),g=$('techGrid');
+  g.className='seg techs'+(vis.length===1?' n1':vis.length===2?' n2':'');
+  buildSeg(g,vis.map(k=>[k,TECHS[k].n,TECHS[k].d]),S.tech,setTech);
+}
+function renderSegs(){
+  buildSeg($('detSeg'),[['rms','RMS','Time average within each acquisition'],['max','Max','Highest state seen in each acquisition'],['sample','Sample','One random instant per bin']],S.det,k=>{S.det=k;renderSegs();updateChips();});
+  buildSeg($('timeSeg'),[['slow','Slow-mo','Slows time so individual hops and gates are visible'],['real','Real time','True time: fast hops average together']],S.slow?'slow':'real',k=>{S.slow=k==='slow';renderSegs();updateChips();});
+  buildSeg($('dragSeg'),[['zoom','Zoom','Drag selects a frequency range'],['pan','Pan','Drag moves the view']],S.drag,k=>{S.drag=k;specC.style.cursor=k==='pan'?'grab':'crosshair';renderSegs();});
+  buildSeg($('hopQuick'),Object.keys(HOP_MODES).map(k=>[k,HOP_MODES[k].n]),S.hop.mode,k=>{S.hop.mode=k;markPlan();renderSegs();updateAll();});
+}
+
+// ════════════════════════════════════════════════════════
+//  SIDE PANEL
+// ════════════════════════════════════════════════════════
+function setRange(el){
+  const a=+el.min,b=+el.max;el.style.setProperty('--p',((+el.value-a)/(b-a)*100)+'%');
+}
+function renderRadarTable(){
+  const tb=$('radarTbody');tb.innerHTML='';
+  S.radars.forEach((r,i)=>{
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td><button class="pick${i===S.selRadar?' on':''}" onclick="selRadar(${i})" aria-label="Select radar ${i+1}" title="Select and tune the jammer here"></button></td>
+      <td><input type="number" value="${r.rf}" min="2" max="18" step="0.01" aria-label="Radar ${i+1} RF" oninput="editRadar(${i},'rf',this)"></td>
+      <td><input type="number" value="${r.pw}" min="0.01" step="0.1" aria-label="Radar ${i+1} PW" oninput="editRadar(${i},'pw',this)"></td>
+      <td><input type="number" value="${r.pri}" min="0.01" step="0.1" aria-label="Radar ${i+1} PRI" oninput="editRadar(${i},'pri',this)"></td>
+      <td><input type="number" value="${r.bw}" min="0.1" step="0.5" aria-label="Radar ${i+1} BW" oninput="editRadar(${i},'bw',this)"></td>
+      <td><input type="number" value="${r.dbm}" min="-120" max="100" step="1" aria-label="Radar ${i+1} power in dBm" oninput="editRadar(${i},'dbm',this)"></td>
+      <td><button class="x" onclick="delRadar(${i})" aria-label="Delete radar ${i+1}" ${S.radars.length<=1?'disabled':''}>✕</button></td>`;
+    tb.appendChild(tr);
+  });
+  $('addRadarBtn').disabled=S.radars.length>=MAX_RADAR;
+  updateRadarDerived();
+}
+function addRadarRow(){
+  const last=S.radars[S.radars.length-1];
+  S.radars.push({rf:Math.min(FMAX,+(last.rf+.5).toFixed(2)),pw:1,pri:1,bw:5,dbm:last.dbm});
+  renderRadarTable();markPlan();updateAll();
+}
+function delRadar(i){
+  if(S.radars.length<=1) return;
+  S.radars.splice(i,1);
+  if(S.selRadar>=S.radars.length) S.selRadar=S.radars.length-1;
+  renderRadarTable();markPlan();updateAll();
+}
+function selRadar(i){
+  S.selRadar=i;
+  $('sCF').value=S.radars[i].rf;
+  renderRadarTable();markPlan();updateAll();
+}
+function editRadar(i,field,el){
+  const v=parseFloat(el.value),lim={rf:[FMIN,FMAX],pw:[1e-3,1e5],pri:[1e-3,1e5],bw:[.01,8000],dbm:[-120,100]}[field];
+  const ok=!isNaN(v)&&v>=lim[0]&&v<=lim[1];
+  el.classList.toggle('bad',!ok);
+  if(!ok) return;
+  S.radars[i][field]=v;
+  if(field==='dbm')raiseTop(10*Math.log10(radarRxW(S.radars[i]))+30);
+  updateRadarDerived();markPlan();updateAll();
+}
+function updateRadarDerived(){
+  const r=S.radars[S.selRadar]||S.radars[0];
+  const prf=1000/r.pri,dc=r.pw*1e-6/(r.pri*1e-3)*100;
+  $('rdrDerived').textContent=`R${S.selRadar+1}: PRF ${prf>=1000?(prf/1000).toFixed(2)+' kHz':prf.toFixed(0)+' Hz'} · duty ${dc.toFixed(dc<1?3:1)}% · ${fmtW(dbm2w(r.dbm))}`;
+  $('hRadar').innerHTML='Radar <b>'+r.rf.toFixed(3)+' GHz</b>';
+  $('fRF').textContent=r.rf.toFixed(3)+'G';$('fPW').textContent=r.pw+'µs';$('fPRI').textContent=r.pri+'ms';
+}
+const bw2s=b=>Math.log(b)/Math.log(16000)*1000,s2bw=s=>Math.pow(16000,s/1000);
+function fromBW(){
+  const v=s2bw(+$('sBW').value);S.bw[S.tech]=v<10?+v.toFixed(1):v<100?+v.toFixed(0):Math.round(v/5)*5;
+  markPlan();updateAll();
+}
+function fromCF(){markPlan();updateAll();}
+function markPlan(){planDirty=true;}
+function setTech(t){
+  if(!TECHS[t]) return;
+  S.tech=t;markPlan();
+  renderTechs();
+  updateAll();
+}
+function updateAll(){
+  S.cf=+$('sCF').value;
+  S.pwr=+$('sPWR').value;S.lw=+$('sLW').value;S.lr=+$('sLR').value;
+  S.jpw=+$('sPW').value;S.jprf=+$('sPRF').value;S.coverMul=+$('sCW').value;
+  markPlan();
+  const t=S.tech,hop=t==='hopping',sweptT=t==='swept',bw=S.bw[t];
+  $('hopSec').style.display=hop?'':'none';
+  $('freqSec').style.display=hop?'none':'';
+  $('pulseSec').style.display=t==='pulse'?'':'none';
+  $('coverSec').style.display=t==='cover'?'':'none';
+  $('lfmSec').style.display=(t==='spot'||t==='pulse'||sweptT)?'':'none';
+  $('lfmTogRow').style.display=sweptT?'none':'';
+  $('lfmHead').textContent=sweptT?'Sweep':'LFM modulation';
+  $('lfmC').style.display=(S.lfm||sweptT)?'':'none';
+  const moving=sweptT||(S.lfm&&(t==='spot'||t==='pulse'));
+  $('cfRow').style.display=t==='cover'?'none':'';
+  $('feRow').style.display=(t==='cover'||moving)?'none':'';
+  $('bwLbl').textContent=moving?'Inst. BW':'Bandwidth';
+  if(!hop){
+    $('sBW').value=bw2s(bw);
+    const e=effBand(bw);
+    $('vCF').textContent=S.cf.toFixed(3)+' GHz';
+    $('vBW').textContent=fmtHz(bw);
+    if(document.activeElement!==$('nFS'))$('nFS').value=(e.lo/1000).toFixed(3);
+    if(document.activeElement!==$('nFE'))$('nFE').value=(e.hi/1000).toFixed(3);
+  }
+  $('vLW').textContent=fmtHz(S.lw*1000);
+  $('vLR').textContent=S.lr.toFixed(1)+' Hz';
+  $('vPW').textContent=S.jpw.toFixed(1)+' µs';
+  $('vPRF').textContent=S.jprf.toFixed(0)+' Hz';
+  $('vCW').textContent='× '+S.coverMul.toFixed(1);
+  if(document.activeElement!==$('nPWR'))$('nPWR').value=S.pwr;
+  $('pwrHead').textContent='Power budget · '+fmtW(S.budget);
+  document.querySelectorAll('.side input[type=range]').forEach(setRange);
+  $('hMode').innerHTML='<b>'+(hop?'Hopping · '+HOP_MODES[S.hop.mode].full:TECHS[t].full)+'</b>';
+  $('fTech').textContent=TECHS[t].tag+(hop?'/'+HOP_MODES[S.hop.mode].n.toUpperCase():'');
+  $('fJ').textContent=hop?S.hop.channels.length+' ch':S.cf.toFixed(2)+'G/'+fmtHz(bw).replace(' ','');
+  rebuildPlanNow();
+  updatePowerUI();
+  updateCoverage();
+  updateLink();
+  if(hop) updateHopSummary();
+  updateChips();
+}
+function rebuildPlanNow(){
+  plan=buildPlan();planDirty=false;cacheDirty=true;navDirty=true;
+}
+function meanOutput(){
+  const an=plan.an;let mean=0,dens=0,im=0;
+  an.slots.forEach(s=>{
+    const d=an.T?s.on/an.T:1;
+    let sum=0;
+    s.lines.forEach(l=>{
+      sum+=l.p;
+      if(!l.im){im-=l.p*d;const v=l.p/l.b;if(v>dens)dens=v;}
+    });
+    const tot=s.total??sum;
+    mean+=tot*d;im+=tot*d;
+  });
+  return {mean,dens,im:im<1e-9?0:im};
+}
+function updatePowerUI(){
+  const m=meanOutput();
+  $('pMean').textContent=fmtW(m.mean);
+  $('pDens').textContent=(m.dens>=1?m.dens.toFixed(2):m.dens.toFixed(3))+' W/MHz';
+  $('fPwr').textContent=S.pwr.toFixed(0)+'W';
+  $('fPD').textContent=(m.dens>=1?m.dens.toFixed(1):m.dens.toFixed(3))+'W/M';
+  const showIm=m.im>0;
+  $('pImRow').style.display=showIm?'':'none';
+  if(showIm)$('pIm').textContent=fmtW(m.im)+' ('+(m.im/Math.max(m.mean,1e-9)*100).toFixed(0)+'%)';
+  $('pwrNote').textContent=S.tech==='hopping'?hopNote():TECHS[S.tech].note;
+}
+function hopNote(){
+  const h=S.hop;
+  if(h.mode==='sum') return PA_MODELS[h.pa].n+' amplifier, '+h.channels.length+' simultaneous channels.';
+  if(h.mode==='mux') return 'Full power on one channel at a time.';
+  const g=new Set(h.channels.map(c=>c.g)).size;
+  return g+' groups in time, summed inside each group ('+PA_MODELS[h.pa].n.toLowerCase()+').';
+}
+function updateCoverage(){
+  const rows=coverage();
+  const dbm=w=>w>0?(10*Math.log10(w)+30).toFixed(1):'—';
+  $('covBody').innerHTML=rows.map(c=>`<div class="cov"><b>R${c.ri+1}</b><span class="sub" style="grid-column:auto;font-family:var(--mono)">${c.r.rf.toFixed(3)} GHz</span><span class="verdict ${c.c}">${c.v}</span>
+    <span class="sub">J̄ ${dbm(c.jAvg)} · Ĵ ${dbm(c.jPk)} dBm · on ${(c.on*100).toFixed(0)}% · gap ${plan.an.rand&&c.gap>0&&c.gap<Infinity?'≤ ':''}${fmtT(c.gap)}</span></div>`).join('');
+}
+function updateHopSummary(){
+  const h=S.hop,st=channelStats(h,S.pwr),n=h.channels.length,c=st.ch;
+  const pk=Math.max(...c.map(x=>x.peak)),av=Math.max(...c.map(x=>x.avg));
+  const db=v=>v>0?(10*Math.log10(v/S.pwr)).toFixed(1):'—';
+  $('hopSummary').innerHTML=`${n} channels · ${h.mode==='sum'?'continuous':'cycle '+fmtT(st.T)}<br>Strongest channel: on-state ${fmtW(pk)} (${db(pk)} dB), average ${fmtW(av)} (${db(av)} dB)`;
+}
+function updateChips(){
+  const s=view.tf1-view.tf0;
+  $('cCF').textContent=((view.tf0+view.tf1)/2).toFixed(s<.1?4:3)+' GHz';
+  $('cSpan').textContent=fmtSpan(s);
+  $('cRBW').textContent=fmtHz(rbwNow);
+  $('cDet').textContent=S.det.toUpperCase();
+  const sp=S.slow?slowSpeed():1,lbl=sp>=.999?'×1':'×1/'+Math.round(1/sp);
+  $('wfInfo').textContent=(S.slow?'Slow-mo ':'Real time ')+lbl+' · '+fmtT(WF_MS/1000*sp)+' per line';
+  const leg=[];
+  const c=S.emitting?(S.tech==='hopping'?pal.traceHop:pal.trace):pal.idle;
+  leg.push(`<span><i style="border-color:${c}"></i>Trace</span>`);
+  if(S.emitting&&SET.peak)leg.push(`<span><i style="border-color:${pal.peak};border-top-style:dashed"></i>Peak</span>`);
+  if(S.emitting&&SET.avg)leg.push(`<span><i style="border-color:${pal.avg};border-top-style:dotted"></i>Average</span>`);
+  leg.push(`<span><i style="border-color:${pal.radar};border-top-style:dashed"></i>Radar at jammer</span>`);
+  $('legend').innerHTML=leg.join('');
+}
+// Keep a stronger signal on screen; never lowers a scale the user has set
+function raiseTop(dbm){
+  if(dbm<=view.ref) return;
+  const top=Math.min(110,Math.ceil((dbm+5)/10)*10);
+  view.range=Math.min(260,view.range+top-view.ref);view.ref=top;wfDirty=true;
+}
+function powerChanged(){raiseTop(10*Math.log10(+$('sPWR').value)+30);updateAll();}
+function fromNPWR(){
+  const v=checkNum($('nPWR'),1,S.budget);
+  if(v===null) return;
+  $('sPWR').value=v;powerChanged();
+}
+function fromBudget(){
+  const v=checkNum($('nBudget'),10,1e6);
+  if(v===null) return;
+  S.budget=v;$('sPWR').max=v;
+  $('nPWR').classList.remove('bad');
+  powerChanged();
+}
+function syncManual(){
+  const fs=parseFloat($('nFS').value),fe=parseFloat($('nFE').value);
+  if(!isNaN(fs)&&!isNaN(fe)&&fe>fs){
+    const a=Math.max(FMIN,fs),b=Math.min(FMAX,fe);
+    $('sCF').value=(a+b)/2;
+    S.bw[S.tech]=(b-a)*1000;
+  }
+  updateAll();
+}
+function toggleLFM(){
+  S.lfm=!S.lfm;$('lfmTog').setAttribute('aria-checked',S.lfm);markPlan();updateAll();
+}
+function toggleEmit(){
+  S.emitting=!S.emitting;
+  const b=$('emitBtn'),p=$('pStat');
+  b.textContent=S.emitting?'■ Stop jamming':'▶ Emit jamming';b.classList.toggle('on',S.emitting);
+  p.innerHTML='<span class="dot"></span><b>'+(S.emitting?'Jamming':'Standby')+'</b>';p.classList.toggle('tx',S.emitting);
+  $('fStat').textContent=S.emitting?'JAMMING':'STANDBY';
+  cacheDirty=true;navDirty=true;updateChips();
+}
+function toggleFreeze(){
+  S.frozen=!S.frozen;
+  $('frzBtn').classList.toggle('on',S.frozen);
+  $('hFrz').style.display=S.frozen?'':'none';
+}
+function toggleSec(el){
+  el.classList.toggle('col');
+  el.nextElementSibling.classList.toggle('hide');
+}
+function randomize(){
+  const vis=Object.keys(TECHS).filter(k=>SET.techs[k]);
+  const t=vis[Math.floor(Math.random()*vis.length)];
+  const rf=+(3+Math.random()*14).toFixed(2);
+  S.radars[0]={...S.radars[0],rf,pw:+(.1+Math.random()*10).toFixed(1),pri:+(.2+Math.random()*5).toFixed(1)};
+  S.selRadar=0;
+  renderRadarTable();
+  $('sCF').value=Math.max(FMIN,Math.min(FMAX,rf+(Math.random()-.5)*.3));
+  S.bw[t==='hopping'?'spot':t]=t==='barrage'?Math.round(500+Math.random()*4000):Math.round(10+Math.random()*200);
+  $('sPWR').value=Math.round(S.budget*(.1+.9*Math.random()));
+  if(t==='hopping'){
+    const n=2+Math.floor(Math.random()*5),modes=Object.keys(HOP_MODES);
+    S.hop.mode=modes[Math.floor(Math.random()*3)];
+    S.hop.channels=[...Array(n)].map((_,i)=>({f:+Math.min(FMAX,Math.max(FMIN,rf+(i-n/2)*(.2+Math.random()*.3))).toFixed(2),bw:Math.round(20+Math.random()*180),dwell:S.hop.dwell,share:25,g:Math.floor(i/2)}));
+    S.hop.groupSize=2;S.hop.gDwell={};S.hop.channels.forEach(c=>S.hop.gDwell[c.g]=S.hop.dwell);
+  }
+  setTech(t);renderSegs();
+  if(!S.emitting)toggleEmit();
+}
+function resetAll(){
+  if(S.emitting)toggleEmit();
+  if(S.frozen)toggleFreeze();
+  if(S.lfm)toggleLFM();
+  S.radars=[{rf:9.5,pw:1,pri:1,bw:5,dbm:RADAR_DBM}];S.selRadar=0;
+  S.bw={spot:50,barrage:2000,cover:50,pulse:100,unsync:800,swept:30};
+  S.hop=newHop();S.link=newLink();
+  S.det='rms';S.slow=true;
+  S.budget=1100;$('sPWR').max=1100;$('nBudget').value=1100;
+  const d={sCF:9.5,sPWR:500,sLW:.5,sLR:5,sPW:50,sPRF:1000,sCW:3};
+  Object.keys(d).forEach(k=>$(k).value=d[k]);
+  renderRadarTable();renderSegs();
+  view.ref=70;view.range=180;view.hist=[];
+  setView(FMIN,FMAX,false);
+  wfRows.length=0;wfHead=0;wfDirty=true;
+  setTech(SET.techs.spot?'spot':Object.keys(TECHS).find(k=>SET.techs[k]));
+}
+setInterval(()=>{
+  const n=new Date(),p=x=>String(x).padStart(2,'0');
+  $('hTime').textContent=`${p(n.getHours())}:${p(n.getMinutes())}:${p(n.getSeconds())}`;
+},1000);
+
+// ════════════════════════════════════════════════════════
+//  SHEETS
+// ════════════════════════════════════════════════════════
+let lastFocus=null;
+const setInert=v=>document.querySelectorAll('.nav,.app,.status').forEach(e=>{e.inert=v;});
+function openSheet(id){
+  lastFocus=document.activeElement;
+  $(id).classList.add('open');setInert(true);
+  requestAnimationFrame(()=>{placeAllLens();const b=$(id).querySelector('.round');if(b)b.focus({preventScroll:true});});
+  if(id==='setSheet')renderSettings();
+}
+function closeSheet(id){
+  if(!$(id).classList.contains('open')) return;
+  $(id).classList.remove('open');
+  if(!document.querySelector('.scrim.open'))setInert(false);
+  if(lastFocus&&lastFocus.focus)lastFocus.focus({preventScroll:true});
+}
+function scrimClick(e,id){if(e.target===$(id))closeSheet(id);}
+
+// ── Hopping sheet works on a draft: Cancel leaves the running configuration untouched
+let D=null;
+function openHop(){
+  D=JSON.parse(JSON.stringify(S.hop));
+  renderHop();
+  openSheet('hopSheet');
+  requestAnimationFrame(()=>{resizeViz();drawViz();});
+}
+function renderHop(){
+  const m=D.mode,sumLike=m!=='mux';
+  buildSeg($('hopTabs'),Object.keys(HOP_MODES).map(k=>[k,HOP_MODES[k].n]),m,k=>{D.mode=k;renderHop();resizeViz();drawViz();});
+  buildSeg($('paSeg'),Object.keys(PA_MODELS).map(k=>[k,PA_MODELS[k].n]),D.pa,k=>{D.pa=k;renderHop();drawViz();});
+  buildSeg($('orderSeg'),[['seq','Sequential'],['rand','Pseudo-random']],D.order,k=>{D.order=k;renderHop();drawViz();});
+  $('hopDesc').innerHTML=HOP_MODES[m].d;
+  $('paDesc').textContent=PA_MODELS[D.pa].d;
+  $('paBox').style.display=sumLike?'':'none';
+  $('timingBox').style.display=m==='sum'?'none':'';
+  $('paBox').parentElement.style.gridTemplateColumns=(!sumLike||m==='sum')?'1fr':'';
+  if(document.activeElement!==$('hLoss'))$('hLoss').value=D.loss[m]||0;
+  // Loss applies to every mode; keep the field reachable when the PA box is hidden
+  if(!sumLike){$('paBox').style.display='';$('paSeg').style.display='none';$('paDesc').textContent='Mux runs one channel at a time, so the amplifier is never shared.';}
+  else $('paSeg').style.display='';
+  $('paHead').textContent=sumLike?'Summing power model':'Amplifier';
+  placeLens($('paSeg'));
+  $('hopThead').innerHTML=`<tr><th>Ch</th><th>Freq GHz</th><th>BW MHz</th>${m==='mux'?'<th>Dwell ms</th>':''}${sumLike?'<th>Share %</th>':''}${m==='summux'?'<th>Group</th>':''}<th></th></tr>`;
+  const tb=$('hopBody');tb.innerHTML='';
+  D.channels.forEach((c,i)=>{
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td style="white-space:nowrap"><span class="swatch" style="background:${chCol(i)}"></span>H${i+1}</td>
+      <td><input type="number" value="${c.f}" min="2" max="18" step="0.01" aria-label="H${i+1} frequency" oninput="editHF(${i},'f',this)"></td>
+      <td><input type="number" value="${c.bw}" min="0.1" max="4000" step="1" aria-label="H${i+1} bandwidth" oninput="editHF(${i},'bw',this)"></td>
+      ${m==='mux'?`<td><input type="number" value="${c.dwell}" min="0" step="0.1" aria-label="H${i+1} dwell" oninput="editHF(${i},'dwell',this)"></td>`:''}
+      ${sumLike?`<td><input type="number" value="${c.share}" min="0" max="100" step="1" aria-label="H${i+1} power share" oninput="editHF(${i},'share',this)"></td>`:''}
+      ${m==='summux'?`<td><input type="number" value="${c.g+1}" min="1" max="${MAX_CH}" step="1" aria-label="H${i+1} group" onchange="editGroup(${i},this)"></td>`:''}
+      <td><button class="x" onclick="delHF(${i})" aria-label="Delete H${i+1}" ${D.channels.length<=1?'disabled':''}>✕</button></td>`;
+    tb.appendChild(tr);
+  });
+  $('addHF').disabled=D.channels.length>=MAX_CH;
+  $('grpStep').style.display=m==='summux'?'':'none';
+  $('grpSpacer').style.display=m==='summux'?'none':'';
+  $('grpVal').textContent=D.groupSize;
+  const gd=$('grpDwells');gd.innerHTML='';
+  if(m==='summux'){
+    [...new Set(D.channels.map(c=>c.g))].sort((a,b)=>a-b).forEach(g=>{
+      const d=document.createElement('div');d.className='field';
+      d.innerHTML=`<label for="gd${g}">Group ${g+1} dwell (ms)</label><input id="gd${g}" type="number" min="0" step="0.1" value="${D.gDwell[g]??D.dwell}" oninput="editGD(${g},this)">`;
+      gd.appendChild(d);
+    });
+  }
+  syncTimingInputs();
+  updateHopCalc();
+}
+function syncTimingInputs(){
+  if(document.activeElement!==$('hDwell'))$('hDwell').value=D.dwell;
+  if(document.activeElement!==$('hRate'))$('hRate').value=+(1000/Math.max(D.dwell,1e-6)).toFixed(2);
+  if(document.activeElement!==$('hGuard'))$('hGuard').value=D.guard;
+}
+function checkNum(el,lo,hi){
+  const v=parseFloat(el.value),ok=!isNaN(v)&&v>=lo&&v<=hi;
+  el.classList.toggle('bad',!ok);
+  return ok?v:null;
+}
+function editHF(i,field,el){
+  const lim={f:[FMIN,FMAX],bw:[.01,8000],dwell:[0,1e5],share:[0,1e4]}[field],v=checkNum(el,lim[0],lim[1]);
+  if(v===null) return;
+  D.channels[i][field]=v;updateHopCalc();drawViz();
+}
+function normGroups(){
+  const ids=[...new Set(D.channels.map(c=>c.g))].sort((a,b)=>a-b),nd={};
+  ids.forEach((g,k)=>{nd[k]=D.gDwell[g]??D.dwell;});
+  D.channels.forEach(c=>{c.g=ids.indexOf(c.g);});
+  D.gDwell=nd;
+}
+function editGroup(i,el){
+  const v=checkNum(el,1,MAX_CH);
+  if(v===null) return;
+  D.channels[i].g=Math.round(v)-1;normGroups();renderHop();drawViz();
+}
+function stepGroup(d){
+  D.groupSize=Math.max(1,Math.min(D.channels.length,D.groupSize+d));
+  D.channels.forEach((c,i)=>{c.g=Math.floor(i/D.groupSize);});
+  normGroups();renderHop();drawViz();
+}
+function editGD(g,el){const v=checkNum(el,0,1e5);if(v===null)return;D.gDwell[g]=v;updateHopCalc();drawViz();}
+function setAllDwell(v){
+  D.dwell=v;D.channels.forEach(c=>c.dwell=v);Object.keys(D.gDwell).forEach(g=>D.gDwell[g]=v);
+  D.channels.forEach((c,i)=>{const n=document.querySelector(`#hopBody tr:nth-child(${i+1}) input[aria-label="H${i+1} dwell"]`);if(n)n.value=v;});
+  document.querySelectorAll('#grpDwells input').forEach(n=>n.value=v);
+}
+function editDwell(){const v=checkNum($('hDwell'),1e-4,1e5);if(v===null)return;setAllDwell(v);syncTimingInputs();updateHopCalc();drawViz();}
+function editRate(){const v=checkNum($('hRate'),.01,1e7);if(v===null)return;setAllDwell(+(1000/v).toFixed(6));syncTimingInputs();updateHopCalc();drawViz();}
+function editGuard(){const v=checkNum($('hGuard'),0,1e8);if(v===null)return;D.guard=v;updateHopCalc();drawViz();}
+function editLoss(){const v=checkNum($('hLoss'),0,40);if(v===null)return;D.loss[D.mode]=v;updateHopCalc();drawViz();}
+function addHF(){
+  if(D.channels.length>=MAX_CH) return;
+  const l=D.channels[D.channels.length-1];
+  const maxG=Math.max(...D.channels.map(c=>c.g));
+  const inLast=D.channels.filter(c=>c.g===maxG).length,g=inLast>=D.groupSize?maxG+1:maxG;
+  D.channels.push({f:+Math.min(FMAX,l.f+.5).toFixed(3),bw:l.bw,dwell:D.dwell,share:l.share,g});
+  if(D.gDwell[g]===undefined)D.gDwell[g]=D.dwell;
+  renderHop();drawViz();
+}
+function delHF(i){
+  if(D.channels.length<=1) return;
+  D.channels.splice(i,1);normGroups();
+  D.groupSize=Math.min(D.groupSize,D.channels.length);
+  renderHop();drawViz();
+}
+function updateHopCalc(){
+  const st=channelStats(D,S.pwr),P=S.pwr,m=D.mode;
+  const db=v=>v>0?(10*Math.log10(v/P)).toFixed(2)+' dB':'—';
+  $('budgetP').textContent=P+' W';
+  const body=$('budgetBody');
+  body.innerHTML=D.channels.map((c,i)=>{
+    const s=st.ch[i];
+    return `<tr><td style="white-space:nowrap"><span class="swatch" style="background:${chCol(i)}"></span>H${i+1}</td><td class="num">${fmtW(s.peak)}</td><td class="num">${db(s.peak)}</td><td class="num">${(s.duty*100).toFixed(1)}%</td><td class="num">${fmtW(s.avg)}</td><td class="num">${db(s.avg)}</td><td class="num">${st.T?fmtT(st.T):'—'}</td></tr>`;
+  }).join('');
+  const notes=[];
+  notes.push('Mean output '+fmtW(st.meanOut)+(st.imAvg>0?', of which '+fmtW(st.imAvg)+' in IM products':''));
+  if(m!=='sum')notes.push('Time on air '+(st.eff*100).toFixed(1)+'%');
+  $('budgetNote').textContent=notes.join(' · ');
+  const w=[];
+  if(m!=='sum'&&st.eff<=0)w.push('Guard is longer than every dwell: nothing is radiated.');
+  else if(m!=='sum'&&st.eff<.5)w.push('Guard takes more than half of the cycle.');
+  if(m!=='mux'&&D.channels.every(c=>!(c.share>0)))w.push('All power shares are zero.');
+  $('hopWarn').textContent=w.join(' ');
+  $('vizInfo').textContent=m==='sum'?'· continuous, all channels together':'· cycle '+fmtT(st.T)+' · hop rate '+(st.slots&&st.T?(+(st.slots/st.T).toFixed(1))+' /s':'—')+(D.order==='rand'?' · order changes every cycle':'');
+}
+function applyHop(emit){
+  S.hop=D;
+  if(!SET.techs.hopping){SET.techs.hopping=true;saveSet();}
+  closeSheet('hopSheet');
+  setTech('hopping');renderSegs();
+  if(emit&&!S.emitting)toggleEmit();
+}
+// Time pattern: rows are channels, bar height follows amplitude re. full power
+const vizC=$('hopVizCanvas'),vizX=vizC.getContext('2d');let vizW=0,vizH=0;
+function resizeViz(){
+  const r=vizC.parentElement.getBoundingClientRect();
+  if(!r.width) return;
+  vizW=Math.floor(r.width);vizH=Math.floor(r.height);
+  vizC.width=vizW*DPR;vizC.height=vizH*DPR;vizX.setTransform(DPR,0,0,DPR,0,0);
+}
+function drawViz(){
+  if(!D||!vizW) return;
+  const P=S.pwr,{slots,T}=hopSlots(D,P),n=D.channels.length,x0=32,y1=vizH-16,rowH=(y1-5)/n,w=vizW-x0-8;
+  vizX.clearRect(0,0,vizW,vizH);
+  vizX.font=MONO10;
+  vizX.textBaseline='middle';
+  for(let i=0;i<n;i++){
+    const y=5+i*rowH;
+    vizX.strokeStyle=pal.grid;vizX.beginPath();vizX.moveTo(x0,y+rowH-.5);vizX.lineTo(vizW,y+rowH-.5);vizX.stroke();
+    if(rowH>=9){vizX.fillStyle=pal.axis;vizX.fillText('H'+(i+1),4,y+rowH/2);}
+  }
+  vizX.textBaseline='alphabetic';
+  const drawBar=(ch,x,bw,p)=>{
+    const y=5+ch*rowH,rel=Math.sqrt(Math.max(p,0)/P),bh=Math.max(2,(rowH-2)*rel);
+    vizX.fillStyle=chCol(ch);vizX.fillRect(x,y+rowH-1-bh,Math.max(bw,1),bh);
+  };
+  if(!T){
+    slots.forEach(s=>s.lines.forEach(l=>{if(l.ch>=0)drawBar(l.ch,x0,w,l.p);}));
+    vizX.fillStyle=pal.axis2;vizX.fillText('time →',x0,vizH-4);
+    return;
+  }
+  // Two cycles, with a marker between them
+  const scale=w/(2*T);
+  for(let c=0;c<2;c++){
+    let t=c*T;
+    const ord=D.order==='rand'?perm(slots.length,c+1):[...slots.keys()];
+    ord.forEach(k=>{
+      const s=slots[k];
+      s.lines.forEach(l=>{if(l.ch>=0)drawBar(l.ch,x0+t*scale,s.on*scale-.5,l.p);});
+      t+=s.on+s.guard;
+    });
+  }
+  vizX.strokeStyle=pal.axis2;vizX.setLineDash([3,3]);vizX.beginPath();vizX.moveTo(x0+w/2,0);vizX.lineTo(x0+w/2,y1);vizX.stroke();vizX.setLineDash([]);
+  vizX.fillStyle=pal.axis;vizX.textAlign='left';vizX.fillText('0',x0,vizH-4);
+  vizX.textAlign='center';vizX.fillText(fmtT(T),x0+w/2,vizH-4);
+  vizX.textAlign='right';vizX.fillText(fmtT(2*T),vizW-8,vizH-4);vizX.textAlign='left';
+}
+
+// ── Engagement: free-space link budget driven by what the selected technique puts in the radar band
+function radarRxW(r){
+  const L=S.link,spj=L.mode==='spj',lam=.299792/r.rf,d=(spj?L.R:L.Rj)*1e3;
+  return dbm2w(r.dbm)*db2lin(L.G-(spj?0:L.sl)+L.Gj)*lam*lam/Math.pow(4*Math.PI*d,2);
+}
+function linkCalc(c){
+  const L=S.link,r=c.r,spj=L.mode==='spj',lam=.299792/r.rf,G=db2lin(L.G),fp=4*Math.PI,R=L.R*1e3,Rj=L.Rj*1e3;
+  // Echo S=Sc/R⁴ and jamming J=Jc/d² at the radar receiver (d=R when the jammer is on the target)
+  const Sc=dbm2w(r.dbm)*G*G*lam*lam*L.sigma/(fp*fp*fp*db2lin(L.Lr));
+  const inBand=S.tech==='cover'?c.jPk:c.jAvg,Jc=inBand*db2lin(L.Gj-L.Lj)*(spj?G:G*db2lin(-L.sl))*lam*lam/(fp*fp);
+  const N=1.380649e-23*290*db2lin(L.nf)*r.bw*1e6,Gp=Math.max(1,r.pw*r.bw)*L.np,D=db2lin(L.D);
+  const Jat=m=>Jc/((spj?m:Rj)**2),Sat=m=>Sc/(m**4);
+  const r0=Math.pow(Sc*Gp/(D*N),.25);
+  let rbt;
+  if(spj){
+    // D·N·x² + D·Jc·x − Sc·Gp = 0 with x=R²; written to stay accurate for any J/N
+    const a=D*N,b=D*Jc,q=Sc*Gp;
+    rbt=Math.sqrt(2*q/(b+Math.sqrt(b*b+4*a*q)));
+  }else rbt=Math.pow(Sc*Gp/(D*(Jat(Rj)+N)),.25);
+  const Sr=Sat(R),Jr=Jat(R),cpi=L.np*r.pri*1e-3,seenInGaps=S.tech!=='cover'&&Jr>0&&c.gap>=cpi;
+  let v,cl;
+  if(R>r0){v='· Beyond detection';cl='vn';}
+  else if(!(Jr>0)){v='⚠ Not jammed';cl='vr';}
+  else if(seenInGaps){v='⚠ Seen in gaps';cl='vo';}
+  else if(R>rbt){v='✓ Masked';cl='vg';}
+  else{v='⚠ Burned through';cl='vr';}
+  const dB=x=>10*Math.log10(x);
+  return {r,ri:c.ri,S:dB(Sr)+30,J:Jr>0?dB(Jr)+30:-Infinity,N:dB(N)+30,JN:Jr>0?dB(Jr/N):-Infinity,JS:Jr>0?dB(Jr/Sr):-Infinity,Gp:dB(Gp),JSout:Jr>0?dB(Jr/(Sr*Gp)):-Infinity,SJNR:dB(Sr*Gp/(Jr+N)),r0,rbt:seenInGaps?r0:rbt,rawBt:rbt,seenInGaps,v,cl,gap:c.gap,cpi,
+    withJam:m=>dB(Sat(m)*Gp/(Jat(m)+N)),noJam:m=>dB(Sat(m)*Gp/N)};
+}
+const sdB=(v,d=1)=>v===-Infinity?'—':(v>0?'+':'')+v.toFixed(d);
+function fmtKm(m){return m>=1e5?(m/1e3).toFixed(0)+' km':m>=1e3?(m/1e3).toFixed(1)+' km':m.toFixed(0)+' m';}
+function updateLink(){
+  const rows=coverage().map(linkCalc);
+  $('linkBody').innerHTML=rows.map(k=>`<div class="cov"><b>R${k.ri+1}</b><span class="sub" style="grid-column:auto;font-family:var(--mono)">J/S ${sdB(k.JS)} dB</span><span class="verdict ${k.cl}">${k.v}</span>
+    <span class="sub">After processing ${sdB(k.JSout)} dB<br>Burn-through ${k.seenInGaps?'n/a':fmtKm(k.rbt)} · detection ${fmtKm(k.r0)}</span></div>`).join('');
+  if($('linkSheet').classList.contains('open')){
+    $('linkTable').innerHTML=rows.map(k=>`<tr><td>R${k.ri+1}</td><td class="num">${k.S.toFixed(1)}</td><td class="num">${k.J===-Infinity?'—':k.J.toFixed(1)}</td><td class="num">${k.N.toFixed(1)}</td><td class="num">${sdB(k.JN)}</td><td class="num">${sdB(k.JS)}</td><td class="num">${k.Gp.toFixed(1)}</td><td class="num">${sdB(k.JSout)}</td><td class="num">${sdB(k.SJNR)}</td><td class="num">${k.seenInGaps?'n/a':fmtKm(k.rbt)}</td><td class="num">${fmtKm(k.r0)}</td><td class="verdict ${k.cl}">${k.v}</td></tr>`).join('');
+    drawLink();
+  }
+}
+let linkR=0,linkW=0,linkH=0,linkHover=null;
+function openLink(){
+  linkR=Math.min(S.selRadar,S.radars.length-1);
+  const L=S.link;
+  [['lR','R'],['lSigma','sigma'],['lRj','Rj'],['lG','G'],['lSl','sl'],['lLr','Lr'],['lNf','nf'],['lNp','np'],['lD','D'],['lGj','Gj'],['lLj','Lj']].forEach(([id,k])=>{$(id).value=L[k];$(id).classList.remove('bad');});
+  renderLinkMode();
+  openSheet('linkSheet');
+  requestAnimationFrame(()=>{resizeLink();updateLink();placeAllLens();});
+}
+function renderLinkMode(){
+  const m=S.link.mode,soj=m==='soj';
+  buildSeg($('linkModeSeg'),[['spj','Self-protect'],['soj','Stand-off']],m,k=>{S.link.mode=k;linkChanged();renderLinkMode();});
+  $('linkDesc').innerHTML=soj?'<b>Stand-off.</b> The jammer sits away from the target and enters through the radar sidelobes, so J stays fixed as the target closes while the echo grows as 1/R⁴.':'<b>Self-protect.</b> The jammer is on the target and in the radar main beam. J falls as 1/R² and the echo as 1/R⁴, so J/S drops as the target closes.';
+  $('lRjBox').style.visibility=soj?'':'hidden';
+  $('lSlBox').style.opacity=soj?'':'.4';$('lSl').disabled=!soj;
+  const rs=$('linkRadarSeg');
+  if(S.radars.length>1){rs.style.display='';buildSeg(rs,S.radars.map((_,i)=>[String(i),'R'+(i+1)]),String(linkR),k=>{linkR=+k;renderLinkMode();updateLink();});}
+  else rs.style.display='none';
+}
+const LINK_LIM={R:[.01,1e5],Rj:[.01,1e5],sigma:[1e-4,1e6],G:[0,60],sl:[0,70],Lr:[0,40],nf:[0,30],np:[1,1e5],D:[-10,40],Gj:[-20,50],Lj:[0,40]};
+function linkChanged(){
+  S.radars.forEach(r=>raiseTop(10*Math.log10(radarRxW(r))+30));
+  cacheDirty=true;navDirty=true;updateLink();
+}
+function editLink(k,el){
+  const v=checkNum(el,LINK_LIM[k][0],LINK_LIM[k][1]);
+  if(v===null) return;
+  S.link[k]=k==='np'?Math.round(v):v;
+  linkChanged();
+}
+const linkC=$('linkCanvas'),linkX=linkC.getContext('2d');
+function resizeLink(){
+  const r=linkC.parentElement.getBoundingClientRect();
+  if(!r.width) return;
+  linkW=Math.floor(r.width);linkH=Math.floor(r.height);
+  linkC.width=linkW*DPR;linkC.height=linkH*DPR;linkX.setTransform(DPR,0,0,DPR,0,0);
+}
+linkC.addEventListener('pointermove',e=>{linkHover=e.clientX-linkC.getBoundingClientRect().left;drawLink();});
+linkC.addEventListener('pointerleave',()=>{linkHover=null;drawLink();});
+addEventListener('resize',()=>{if($('linkSheet').classList.contains('open')){resizeLink();drawLink();}});
+function drawLink(){
+  if(!linkW) return;
+  const k=linkCalc(coverage()[Math.min(linkR,S.radars.length-1)]),X=linkX,L=S.link;
+  const pl=44,pr=14,pt=24,pb=30,w=linkW-pl-pr,h=linkH-pt-pb,Rm=L.R*1e3;
+  const lo=Math.log10(Math.max(10,Math.min(Rm,k.r0,k.rawBt)/3)),hi=Math.log10(Math.max(Rm,k.r0,k.rawBt)*3);
+  const m2x=m=>pl+(Math.log10(m)-lo)/(hi-lo)*w;
+  let yMin=L.D-20,yMax=L.D+20;
+  for(let i=0;i<=60;i++){const m=Math.pow(10,lo+(hi-lo)*i/60),a=k.withJam(m),b=k.noJam(m);yMin=Math.min(yMin,a,b);yMax=Math.max(yMax,a,b);}
+  yMin=Math.max(yMin,L.D-70);yMax=Math.min(yMax,L.D+70);
+  const st=niceStep(yMax-yMin,5);yMin=Math.floor(yMin/st)*st;yMax=Math.ceil(yMax/st)*st;
+  const y=d=>pt+(yMax-d)/(yMax-yMin)*h;
+  X.clearRect(0,0,linkW,linkH);X.font=MONO10;X.lineWidth=1;
+  // Grid and axes
+  X.strokeStyle=pal.grid;X.fillStyle=pal.axis;X.textAlign='right';X.beginPath();
+  for(let d=yMin;d<=yMax+1e-9;d+=st){const py=Math.round(y(d))+.5;X.moveTo(pl,py);X.lineTo(linkW-pr,py);X.fillText(String(d),pl-5,py+3.5);}
+  X.stroke();
+  X.textAlign='center';X.beginPath();
+  for(let e=Math.ceil(lo);e<=Math.floor(hi);e++){
+    const m=Math.pow(10,e),px=Math.round(m2x(m))+.5;X.moveTo(px,pt);X.lineTo(px,pt+h);X.fillText(fmtKm(m),px,pt+h+13);
+  }
+  X.stroke();
+  X.fillStyle=pal.axis2;X.textAlign='left';X.fillText('dB',4,pt-8);X.textAlign='right';X.fillText('range (log)',linkW-pr,linkH-4);
+  // Threshold and target
+  X.save();X.beginPath();X.rect(pl,pt,w,h);X.clip();
+  X.strokeStyle=pal.axis;X.setLineDash([6,4]);X.beginPath();X.moveTo(pl,y(L.D));X.lineTo(linkW-pr,y(L.D));X.stroke();
+  X.setLineDash([2,3]);X.beginPath();const tx=Math.round(m2x(Rm))+.5;X.moveTo(tx,pt);X.lineTo(tx,pt+h);X.stroke();X.setLineDash([]);
+  const line=(fn,col)=>{X.strokeStyle=col;X.lineWidth=2;X.lineJoin='round';X.beginPath();for(let i=0;i<=200;i++){const m=Math.pow(10,lo+(hi-lo)*i/200),px=pl+i/200*w,py=y(fn(m));i?X.lineTo(px,py):X.moveTo(px,py);}X.stroke();};
+  line(k.noJam,CH_COL[theme][1]);line(k.withJam,CH_COL[theme][0]);
+  X.lineWidth=1;
+  const dot=(m,col,txt,below)=>{
+    const px=m2x(m),py=y(L.D);
+    X.fillStyle=col;X.beginPath();X.arc(px,py,4.5,0,7);X.fill();X.strokeStyle=pal.plate;X.lineWidth=1.5;X.stroke();X.lineWidth=1;
+    X.fillStyle=pal.axis;const right=px+8+X.measureText(txt).width>pl+w;X.textAlign=right?'right':'left';X.fillText(txt,px+(right?-8:8),py+(below?17:-8));
+  };
+  // Second label goes under the threshold when the two would touch
+  const btTxt='Burn-through '+fmtKm(k.rawBt),hasBt=k.J!==-Infinity&&Math.abs(k.rawBt/k.r0-1)>.01;
+  const span=(px,txt)=>{const tw=X.measureText(txt).width;return px+8+tw>pl+w?[px-8-tw,px-8]:[px+8,px+8+tw];};
+  const d0=span(m2x(k.r0),'Detection '+fmtKm(k.r0)),b0=span(m2x(k.rawBt),btTxt);
+  dot(k.r0,CH_COL[theme][1],'Detection '+fmtKm(k.r0),hasBt&&d0[0]<b0[1]+6&&b0[0]<d0[1]+6);
+  if(hasBt) dot(k.rawBt,CH_COL[theme][0],btTxt);
+  const tTxt='Target '+fmtKm(Rm),tRight=tx+5+X.measureText(tTxt).width>pl+w;
+  X.fillStyle=pal.axis;X.textAlign=tRight?'right':'left';X.fillText(tTxt,tx+(tRight?-5:5),pt+11);
+  X.restore();
+  // Legend
+  X.textAlign='left';let lx=pl;
+  [[CH_COL[theme][0],'With jamming',0],[CH_COL[theme][1],'No jamming',0],[pal.axis,'Threshold',1]].forEach(([c,t,dash])=>{
+    X.strokeStyle=c;X.lineWidth=2;X.setLineDash(dash?[6,4]:[]);X.beginPath();X.moveTo(lx,pt-11);X.lineTo(lx+16,pt-11);X.stroke();X.setLineDash([]);
+    X.fillStyle=pal.axis;X.fillText(t,lx+20,pt-7.5);lx+=30+X.measureText(t).width;
+  });
+  // Hover read-out
+  if(linkHover!==null&&linkHover>=pl&&linkHover<=pl+w){
+    const m=Math.pow(10,lo+(linkHover-pl)/w*(hi-lo));
+    X.strokeStyle=pal.axis2;X.lineWidth=1;X.beginPath();X.moveTo(linkHover+.5,pt);X.lineTo(linkHover+.5,pt+h);X.stroke();
+    X.fillStyle=pal.axis;X.textAlign='left';X.fillText(fmtKm(m)+'  S/(J+N) '+sdB(k.withJam(m))+'  S/N '+sdB(k.noJam(m))+' dB',pl,linkH-4);
+  }
+  $('linkWarn').textContent=k.seenInGaps?`R${k.ri+1}: jamming gap ${fmtT(k.gap)} is at least one CPI (${fmtT(k.cpi)}), so the radar gets whole CPIs without jamming. Burn-through does not apply until the revisit is shorter: the curve shows the averaged J only.`:'';
+}
+
+// ── Settings
+function renderSettings(){
+  const el=$('setTechs');el.innerHTML='';
+  const on=Object.keys(TECHS).filter(k=>SET.techs[k]);
+  Object.keys(TECHS).forEach(k=>{
+    const d=document.createElement('div');d.className='setrow';
+    const last=SET.techs[k]&&on.length===1;
+    d.innerHTML=`<div class="grow"><div class="tt">${TECHS[k].n}<span class="tag">${TECHS[k].tag}</span></div><div class="sub">${TECHS[k].d}</div></div>
+      <button class="sw" role="switch" aria-checked="${!!SET.techs[k]}" aria-label="Show ${TECHS[k].n}" ${last?'disabled title="At least one technique stays visible"':''} onclick="toggleTech('${k}')"></button>`;
+    el.appendChild(d);
+  });
+  buildSeg($('themeSeg'),[['auto','Auto'],['light','Light'],['dark','Dark']],SET.theme,k=>{SET.theme=k;saveSet();applyTheme();renderSettings();});
+  buildSeg($('unitSeg'),[['rbw','dBm'],['psd','dBm/MHz']],SET.unit,k=>{SET.unit=k;saveSet();cacheDirty=true;view.ref=SET.unit==='psd'?60:70;wfRows.length=0;wfHead=0;wfDirty=true;renderSettings();});
+  $('glassSl').value=SET.glass*100;setRange($('glassSl'));
+  const sws={refrSw:'refract',wallSw:'wall',peakSw:'peak',avgSw:'avg',imSw:'im'};
+  Object.keys(sws).forEach(id=>$(id).setAttribute('aria-checked',!!SET[sws[id]]));
+  $('refrSw').disabled=!refractSupported();
+  $('refrNote').textContent=refractSupported()?'Lens edges on floating bars':'Needs a Chromium browser. Blur is used here.';
+  const sel=$('rbwSel');
+  if(!sel.options.length){
+    [['0','Auto'],['0.01','10 kHz'],['0.1','100 kHz'],['1','1 MHz'],['3','3 MHz'],['10','10 MHz'],['30','30 MHz'],['100','100 MHz']].forEach(([v,t])=>{
+      const o=document.createElement('option');o.value=v;o.textContent=t;sel.appendChild(o);
+    });
+  }
+  sel.value=String(SET.rbw);
+  placeAllLens();
+}
+function setRBW(v){SET.rbw=+v;saveSet();cacheDirty=true;}
+function toggleTech(k){
+  const on=Object.keys(TECHS).filter(x=>SET.techs[x]);
+  if(SET.techs[k]&&on.length===1) return;
+  SET.techs[k]=!SET.techs[k];saveSet();
+  if(!SET.techs[S.tech]) setTech(Object.keys(TECHS).find(x=>SET.techs[x]));
+  renderTechs();renderSettings();
+}
+function toggleSet(k){
+  SET[k]=!SET[k];saveSet();
+  if(k==='refract')applyRefraction();
+  if(k==='wall')$('wall').classList.toggle('alive',SET.wall);
+  cacheDirty=true;navDirty=true;
+  renderSettings();updateChips();
+}
+function setGlass(v){
+  SET.glass=v;saveSet();
+  document.documentElement.style.setProperty('--t',v);
+  setRange($('glassSl'));
+  applyRefraction();
+}
+const darkMQ=matchMedia('(prefers-color-scheme:dark)');
+function applyTheme(){
+  theme=SET.theme==='auto'?(darkMQ.matches?'dark':'light'):SET.theme;
+  document.body.dataset.theme=theme;pal=PAL[theme];
+  document.querySelector('meta[name=theme-color]').content=theme==='dark'?'#0a0e18':'#e9eef6';
+  buildLut();wfDirty=true;navDirty=true;
+  applyRefraction();updateChips();
+  if($('hopSheet').classList.contains('open')){renderHop();drawViz();}
+  if($('linkSheet').classList.contains('open'))drawLink();
+}
+darkMQ.addEventListener('change',applyTheme);
+
+// ── Refraction: backdrop displaced by a rounded-rect lens map (Chromium only)
+function refractSupported(){
+  return !!(navigator.userAgentData&&navigator.userAgentData.brands&&navigator.userAgentData.brands.some(b=>/Chrom/.test(b.brand)))||/Chrome\//.test(navigator.userAgent);
+}
+function lensMap(w,h,r,z){
+  const c=document.createElement('canvas');c.width=w;c.height=h;
+  const x=c.getContext('2d'),img=x.createImageData(w,h),d=img.data;
+  for(let j=0;j<h;j++)for(let i=0;i<w;i++){
+    const qx=Math.abs(i+.5-w/2)-(w/2-r),qy=Math.abs(j+.5-h/2)-(h/2-r);
+    const ax=Math.max(qx,0),ay=Math.max(qy,0),len=Math.hypot(ax,ay);
+    const sd=len+Math.min(Math.max(qx,qy),0)-r;
+    let nx=0,ny=0;
+    if(len>0){nx=ax/len;ny=ay/len;}else if(qx>qy)nx=1;else ny=1;
+    nx*=Math.sign(i+.5-w/2);ny*=Math.sign(j+.5-h/2);
+    const t=Math.max(0,1-(-sd)/z),m=t*t*t;
+    const o=(j*w+i)*4;
+    d[o]=128-127*nx*m;d[o+1]=128-127*ny*m;d[o+2]=128;d[o+3]=255;
+  }
+  x.putImageData(img,0,0);
+  return c.toDataURL();
+}
+let fxId=0;
+function applyRefraction(){
+  const els=document.querySelectorAll('.refract'),on=SET.refract&&refractSupported();
+  const defs=$('fxdefs');defs.innerHTML='';
+  const t=matchMedia('(prefers-reduced-transparency:reduce)').matches?1:SET.glass;
+  const sat=(1.9-.5*t).toFixed(2),blur=(12+30*t)/3;
+  els.forEach(el=>{
+    if(!on){el.style.backdropFilter='';el.style.webkitBackdropFilter='';return;}
+    const w=Math.round(el.offsetWidth),h=Math.round(el.offsetHeight);
+    if(!w||!h) return;
+    const id='lg'+(fxId++),r=Math.min(h/2,w/2),z=Math.min(16,h*.42);
+    defs.insertAdjacentHTML('beforeend',`<filter id="${id}" x="0" y="0" width="${w}" height="${h}" filterUnits="userSpaceOnUse" primitiveUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feImage href="${lensMap(w,h,r,z)}" x="0" y="0" width="${w}" height="${h}" preserveAspectRatio="none" result="m"/>
+      <feGaussianBlur in="SourceGraphic" stdDeviation="${blur.toFixed(1)}" result="b"/>
+      <feDisplacementMap in="b" in2="m" scale="${(z*2.4).toFixed(0)}" xChannelSelector="R" yChannelSelector="G"/></filter>`);
+    el.style.backdropFilter=`url(#${id}) saturate(${sat})`;
+  });
+}
+if(window.ResizeObserver){
+  let rt=0;const ro=new ResizeObserver(()=>{clearTimeout(rt);rt=setTimeout(applyRefraction,120);});
+  document.querySelectorAll('.refract').forEach(e=>ro.observe(e));
+}
+
+// ════════════════════════════════════════════════════════
+//  ANIMATION LOOP
+// ════════════════════════════════════════════════════════
+let lastTS=null,wfAcc=0,wfT0=0,frameT0=0,lastChipRBW=0;
+function loop(ts){
+  if(lastTS===null) lastTS=ts;
+  const dt=Math.min(.1,(ts-lastTS)/1000);lastTS=ts;
+  resizeCheck();
+  animateView(dt);
+  if(planDirty) rebuildPlanNow();
+  const viewWas=cacheDirty;
+  if(cacheDirty) rebuildCache();
+  if(!S.frozen){
+    frameT0=S.t;
+    S.t+=dt*(S.slow?slowSpeed():1);
+    rndOff=(rndOff+7919+Math.floor(Math.random()*4096))&(RT-1);
+    computeTrace(frameT0,S.t,S.det,trace);
+    wfAcc+=dt*1000;
+    if(wfAcc>=WF_MS){wfAcc=0;wfNewRow();}
+  }else if(viewWas) computeTrace(frameT0,S.t,S.det,trace);
+  if(wfDirty) wfFull();
+  drawSpectrum();
+  drawNav();
+  if(viewWas||lastChipRBW!==rbwNow){lastChipRBW=rbwNow;updateChips();}
+  requestAnimationFrame(loop);
+}
+
+// ════════════════════════════════════════════════════════
+//  INIT
+// ════════════════════════════════════════════════════════
+if(!SET.techs[S.tech]) S.tech=Object.keys(TECHS).find(k=>SET.techs[k])||'spot';
+document.documentElement.style.setProperty('--t',SET.glass);
+$('wall').classList.toggle('alive',SET.wall);
+applyTheme();
+renderTechs();renderSegs();renderRadarTable();
+updateAll();syncViewInputs();
+requestAnimationFrame(()=>{placeAllLens();applyRefraction();});
+addEventListener('load',placeAllLens);
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
